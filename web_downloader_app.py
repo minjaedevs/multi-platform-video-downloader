@@ -778,12 +778,22 @@ def _request_token(request: web.Request) -> str:
     return request.headers.get("X-VideoGet-Token", "").strip()
 
 
+def _is_local_host_request(request: web.Request) -> bool:
+    host = request.host.rsplit(":", 1)[0].strip("[]").lower()
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
 @web.middleware
 async def api_security(request: web.Request, handler: Any) -> web.StreamResponse:
     if request.method == "OPTIONS":
         return _apply_cors(request, web.Response(status=204))
 
-    if request.path.startswith("/api/") and request.path != "/api/health" and API_TOKEN:
+    if (
+        request.path.startswith("/api/")
+        and request.path != "/api/health"
+        and API_TOKEN
+        and not _is_local_host_request(request)
+    ):
         if _request_token(request) != API_TOKEN:
             return _apply_cors(
                 request,

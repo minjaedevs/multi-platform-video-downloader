@@ -13,27 +13,28 @@ VideoGet la web app tai video da nen tang. Client co the deploy len GitHub Pages
 - Chat luong: `best`, `1080`, `720`, `480`, `360`.
 - Sau khi tai xong, backend convert sang MP4 H.264 + AAC de Windows/phone mo duoc de hon.
 - Neu user chon `1080`, `720`, `480`, `360`, buoc convert se gioi han dung height da chon. `best` giu do phan giai goc.
-- Neu co Bento4 tai `D:\sports_data\Bento4\cmakebuild\Release`, backend se toi uu MP4 sau khi convert.
+- Da bundle Bento4 `mp4compact.exe` tai `tools\bento4\bin` de toi uu container MP4 sau khi convert.
 - File xu ly tam tren BE duoc giu 24h, cron nen trong app se tu don file cu.
 
 ## Cau Truc
 
 ```text
 .
-├── web_downloader_app.py      # Backend aiohttp API + download worker
-├── web_static/                # UI local: client va admin
-├── docs/                      # Client static cho GitHub Pages
-├── tests/                     # Python tests
-├── logs/                      # Log local, khong commit file .log
-├── processing_storage/        # File BE xu ly tam, gitignored, auto clean sau 24h
-├── chrome_profile/            # Chrome profile rieng, gitignored
-├── .runtime/                  # Token/ngrok/runtime logs, gitignored
-├── _dist/                     # Goi portable, gitignored
-├── run_public_api_test.cmd    # Chay backend public mode local
-├── run_ngrok_8787.cmd         # Public backend qua ngrok
-├── print_demo_link.cmd        # In link demo FE + API + token
-├── sync_pages_fe.cmd          # Sync web_static client sang docs
-└── package_portable.cmd       # Dong goi zip gui may khac
+|-- web_downloader_app.py      # Backend aiohttp API + download worker
+|-- web_static/                # UI local: client va admin
+|-- docs/                      # Client static cho GitHub Pages
+|-- tests/                     # Python tests
+|-- logs/                      # Log local, khong commit file .log
+|-- processing_storage/        # File BE xu ly tam, gitignored, auto clean sau 24h
+|-- chrome_profile/            # Chrome profile rieng, gitignored
+|-- tools/bento4/bin/          # Bento4 mp4compact bundled
+|-- .runtime/                  # Token/ngrok/runtime logs, gitignored
+|-- _dist/                     # Goi portable, gitignored
+|-- run_public_api_test.cmd    # Chay backend public mode local
+|-- run_ngrok_8787.cmd         # Public backend qua ngrok
+|-- print_demo_link.cmd        # In link demo FE + API + token
+|-- sync_pages_fe.cmd          # Sync web_static client sang docs
+`-- package_portable.cmd       # Dong goi zip gui may khac
 ```
 
 ## Cai Dat
@@ -54,11 +55,17 @@ cd D:\be_video_downloader_mcp
 Can co:
 
 - Python
-- yt-dlp
+- yt-dlp, cai qua `requirements.txt`
 - ffmpeg
 - Google Chrome
 - ngrok, neu muon share backend local ra ngoai
-- Bento4 optional, de toi uu container MP4 sau convert
+- Bento4 `mp4compact.exe` da duoc bundle trong `tools\bento4\bin`
+
+Ghi chu ve Bento4:
+
+- Project chi dung `mp4compact.exe` de toi uu container MP4 sau khi convert.
+- Neu muon dung Bento4 ban khac, set `VIDEOGET_BENTO4_BIN_DIR` trong `.env` hoac bien moi truong.
+- Thong tin upstream/ban quyen Bento4 duoc luu tai `tools\bento4\README.Bento4.md`.
 
 ## Chay Local
 
@@ -96,7 +103,7 @@ BE ghi log ra console va file:
 D:\be_video_downloader_mcp\logs\video_jobs.log
 ```
 
-Format moi:
+Format:
 
 ```text
 [job:<job_id> time:<YYYY-MM-DD HH:mm:ss> status:<status> level:<INFO|WARN|ERROR> event:<event>] <message>
@@ -116,10 +123,7 @@ Thu muc BE xu ly tam:
 D:\be_video_downloader_mcp\processing_storage
 ```
 
-Folder luu tren may user duoc chon trong client bang nut `Chon`. Khi job hoan tat,
-client se pull file tu BE ve folder do, roi xoa job khoi danh sach. Neu trinh
-duyet khong ho tro chon folder truc tiep, user bam `Tai file` de tai ve theo
-folder download cua trinh duyet.
+Folder luu tren may user duoc chon trong client bang nut `Chon`. Khi job hoan tat, client se pull file tu BE ve folder do, roi xoa job khoi danh sach. Neu trinh duyet khong ho tro chon folder truc tiep, user bam `Tai file` de tai ve theo folder download cua trinh duyet.
 
 Ten file output co kem chat luong user chon:
 
@@ -234,7 +238,7 @@ Output:
 _dist\videoget-local.zip
 ```
 
-Zip khong gom `.venv`, `.git`, `.runtime`, `chrome_profile`, log, cookies.
+Zip khong gom `.venv`, `.git`, `.runtime`, `chrome_profile`, log, cookies. Zip co gom `tools\bento4\bin\mp4compact.exe`.
 
 ## API Chinh
 

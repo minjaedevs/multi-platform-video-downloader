@@ -33,7 +33,8 @@ PROCESSING_RETENTION_SECONDS = int(os.environ.get("VIDEOGET_PROCESSING_RETENTION
 CHROME_EXE = Path(os.environ.get("VIDEOGET_CHROME_EXE", r"C:\Program Files\Google\Chrome\Application\chrome.exe"))
 CHROME_USER_DATA_DIR = Path(os.environ.get("VIDEOGET_CHROME_PROFILE_DIR", ROOT / "chrome_profile"))
 CHROME_PROFILE_DIR = CHROME_USER_DATA_DIR / "Default"
-BENTO4_BIN_DIR = Path(os.environ.get("VIDEOGET_BENTO4_BIN_DIR", r"D:\sports_data\Bento4\cmakebuild\Release"))
+BUNDLED_BENTO4_BIN_DIR = ROOT / "tools" / "bento4" / "bin"
+BENTO4_BIN_DIR = Path(os.environ.get("VIDEOGET_BENTO4_BIN_DIR", BUNDLED_BENTO4_BIN_DIR))
 YOUTUBE_TEST_URL = "https://www.youtube.com/watch?v=tXv3TryZ6FA"
 APP_HOST = os.environ.get("VIDEOGET_HOST", "127.0.0.1")
 APP_PORT = int(os.environ.get("VIDEOGET_PORT", "8787"))

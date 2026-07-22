@@ -350,6 +350,23 @@ select,
   background: transparent;
 }
 
+.input-line input[readonly] {
+  color: var(--muted);
+}
+
+.inline-action {
+  flex: 0 0 auto;
+  height: 34px;
+  border: 1px solid rgba(255, 210, 26, 0.42);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: rgba(255, 210, 26, 0.1);
+  color: var(--yellow);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .url-status {
   min-height: 20px;
   margin: 10px 0 0;

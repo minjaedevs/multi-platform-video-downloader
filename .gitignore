@@ -6,6 +6,7 @@ __pycache__/
 logs/*.log
 !logs/.gitkeep
 chrome_profile/
+processing_storage/
 _dist/
 .runtime/
 .env

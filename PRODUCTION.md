@@ -33,7 +33,8 @@ Environment variables:
 ```text
 VIDEOGET_HOST=127.0.0.1
 VIDEOGET_PORT=8787
-VIDEOGET_DOWNLOAD_DIR=C:\Users\Pc\video-downloader
+VIDEOGET_DOWNLOAD_DIR=D:\be_video_downloader_mcp\processing_storage
+VIDEOGET_PROCESSING_RETENTION_SECONDS=86400
 VIDEOGET_CHROME_EXE=C:\Program Files\Google\Chrome\Application\chrome.exe
 VIDEOGET_CHROME_PROFILE_DIR=D:\be_video_downloader_mcp\chrome_profile
 ```
@@ -42,8 +43,14 @@ Keep `VIDEOGET_HOST=127.0.0.1` for local-only use. Do not expose this tool to
 the public internet unless you add authentication and per-user download
 isolation.
 
-Use `VIDEOGET_HOST=0.0.0.0` only for local network testing. The downloaded files
-are saved on the host machine, not on the tester's phone/PC.
+Use `VIDEOGET_HOST=0.0.0.0` only for local network testing.
+
+`VIDEOGET_DOWNLOAD_DIR` is the backend processing folder, not the user's final
+save folder. The backend keeps processed videos there for 24h, then the cleanup
+task removes old processing files. The client pulls the completed file from the
+backend into the folder selected by the user in Chrome/Edge. If direct folder
+access is unavailable, the user can download with the browser's default download
+flow.
 
 ## Platform Auth
 

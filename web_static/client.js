@@ -8,6 +8,7 @@ const urlStatus = document.querySelector("#urlStatus");
 const serverInfo = document.querySelector("#serverInfo");
 const downloadPath = document.querySelector("#downloadPath");
 const copyPathBtn = document.querySelector("#copyPathBtn");
+const chooseFolderBtn = document.querySelector("#chooseFolderBtn");
 
 const params = new URLSearchParams(window.location.search);
 const queryApiBase = params.get("api");
@@ -25,6 +26,9 @@ localStorage.setItem(CLIENT_ID_KEY, CLIENT_ID);
 let activeSource = "youtube";
 let urlCheckTimer = null;
 let downloadDirValue = "";
+let downloadDirHandle = null;
+const savingJobs = new Set();
+const savedJobs = new Set();
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -38,6 +42,20 @@ function downloadUrl(jobId) {
   return url.toString();
 }
 
+function contentDispositionFileName(headerValue) {
+  const value = String(headerValue || "");
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const plainMatch = value.match(/filename="?([^";]+)"?/i);
+  return plainMatch ? plainMatch[1] : "";
+}
+
 function apiFetch(path, options = {}) {
   const headers = {
     "ngrok-skip-browser-warning": "true",
@@ -48,6 +66,55 @@ function apiFetch(path, options = {}) {
     headers["X-VideoGet-Token"] = API_TOKEN;
   }
   return fetch(apiUrl(path), { ...options, headers });
+}
+
+async function chooseDownloadFolder() {
+  if (!window.showDirectoryPicker) {
+    alert("Trình duyệt chưa hỗ trợ chọn folder trực tiếp. Hãy dùng Chrome/Edge bản mới, hoặc bấm 'Tai file' khi job hoàn tất.");
+    return;
+  }
+  downloadDirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+  localStorage.setItem("VIDEOGET_CLIENT_DOWNLOAD_DIR_NAME", downloadDirHandle.name);
+  setDownloadPath(downloadDirHandle.name);
+  await loadJobs();
+}
+
+async function saveCompletedJobToUserFolder(job) {
+  if (!downloadDirHandle || savingJobs.has(job.id) || savedJobs.has(job.id)) return;
+  savingJobs.add(job.id);
+  try {
+    const response = await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}/file`);
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+
+    const serverName = contentDispositionFileName(response.headers.get("Content-Disposition")) || fileName(job) || `${job.id}.mp4`;
+    const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+    const fileHandle = await downloadDirHandle.getFileHandle(safeName, { create: true });
+    const writable = await fileHandle.createWritable();
+    if (response.body?.pipeTo) {
+      await response.body.pipeTo(writable);
+    } else {
+      await writable.write(await response.blob());
+      await writable.close();
+    }
+
+    savedJobs.add(job.id);
+    await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}?remove=1`, { method: "DELETE" });
+    await loadJobs();
+  } catch (error) {
+    console.error(error);
+    alert("Không tự lưu được file vào folder đã chọn. Hãy bấm 'Tai file' để tải thủ công.");
+  } finally {
+    savingJobs.delete(job.id);
+  }
+}
+
+function pullCompletedJobs(jobs) {
+  if (!downloadDirHandle) return;
+  jobs
+    .filter((job) => effectiveStatus(job) === "completed")
+    .forEach((job) => {
+      saveCompletedJobToUserFolder(job);
+    });
 }
 
 document.querySelectorAll(".source").forEach((button) => {
@@ -64,9 +131,15 @@ urlInput.addEventListener("input", () => {
 
 document.querySelector("#refreshBtn").addEventListener("click", loadJobs);
 copyPathBtn?.addEventListener("click", copyDownloadPath);
-outputDirInput?.addEventListener("input", () => {
-  if (!outputDirInput.value.trim()) return;
-  setDownloadPath(outputDirInput.value.trim());
+chooseFolderBtn?.addEventListener("click", chooseDownloadFolder);
+jobsEl?.addEventListener("click", (event) => {
+  const link = event.target.closest("[data-download-job]");
+  if (!link) return;
+  const jobId = link.dataset.downloadJob;
+  window.setTimeout(async () => {
+    await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}?remove=1`, { method: "DELETE" }).catch(() => {});
+    await loadJobs();
+  }, 3000);
 });
 
 form.addEventListener("submit", async (event) => {
@@ -87,7 +160,7 @@ form.addEventListener("submit", async (event) => {
       url,
       source: activeSource,
       quality: qualitySelect.value,
-      output_dir: outputDirInput.value.trim() || null,
+      output_dir: null,
       use_app_profile: true,
       cookies_file: null,
       use_browser_cookies: false,
@@ -232,7 +305,7 @@ function renderJobs(jobs) {
       const displayStatus = effectiveStatus(job);
       const meta = statusMeta(displayStatus, isNext);
       const fileAction = displayStatus === "completed"
-        ? `<a class="job-download" href="${escapeHtml(downloadUrl(job.id))}" download>Tai file</a>`
+        ? `<a class="job-download" href="${escapeHtml(downloadUrl(job.id))}" data-download-job="${escapeHtml(job.id)}" download>Tai file</a>`
         : "";
       return `
         <article class="job ${displayStatus} ${isNext ? "next" : ""}">
@@ -274,9 +347,10 @@ async function loadConfig() {
     const config = await response.json();
     serverInfo.textContent = API_BASE || config.public_url;
     serverInfo.title = API_BASE || config.public_url;
-    const configuredDir = outputDirInput.value.trim() || config.download_dir || "";
-    if (outputDirInput && !outputDirInput.placeholder.includes(config.download_dir || "")) {
-      outputDirInput.placeholder = `Mặc định: ${config.download_dir || ""}`;
+    const savedDirName = localStorage.getItem("VIDEOGET_CLIENT_DOWNLOAD_DIR_NAME") || "";
+    const configuredDir = downloadDirHandle?.name || (savedDirName ? `${savedDirName} (cần chọn lại)` : "");
+    if (outputDirInput) {
+      outputDirInput.placeholder = window.showDirectoryPicker ? "Chọn folder trên máy bạn" : "Trình duyệt không hỗ trợ chọn folder";
     }
     setDownloadPath(configuredDir);
   } catch {
@@ -295,9 +369,12 @@ async function loadConfig() {
 
 function setDownloadPath(path) {
   downloadDirValue = path || "";
+  if (outputDirInput) {
+    outputDirInput.value = downloadDirValue;
+  }
   if (downloadPath) {
-    downloadPath.textContent = `Video lưu tại: ${downloadDirValue || "chưa xác định"}`;
-    downloadPath.title = downloadDirValue || "Đường dẫn thư mục chứa video tải về";
+    downloadPath.textContent = `Video lưu tại: ${downloadDirValue || "chưa chọn folder"}`;
+    downloadPath.title = downloadDirValue || "Folder trên máy user để nhận video";
   }
   if (copyPathBtn) {
     copyPathBtn.disabled = !downloadDirValue;
@@ -322,7 +399,9 @@ async function loadJobs() {
   try {
     const response = await apiFetch("/api/jobs");
     const payload = await response.json();
-    renderJobs(payload.jobs || []);
+    const jobs = payload.jobs || [];
+    renderJobs(jobs);
+    pullCompletedJobs(jobs);
   } catch {
     jobsEl.innerHTML = `<div class="empty">Không gọi được API. Kiểm tra URL API hoặc token.</div>`;
   }

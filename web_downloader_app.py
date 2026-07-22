@@ -26,7 +26,8 @@ from aiohttp import web
 
 ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "web_static"
-DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("VIDEOGET_DOWNLOAD_DIR", Path.home() / "video-downloader"))
+DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("VIDEOGET_DOWNLOAD_DIR", ROOT / "processing_storage"))
+PROCESSING_RETENTION_SECONDS = int(os.environ.get("VIDEOGET_PROCESSING_RETENTION_SECONDS", str(24 * 60 * 60)))
 CHROME_EXE = Path(os.environ.get("VIDEOGET_CHROME_EXE", r"C:\Program Files\Google\Chrome\Application\chrome.exe"))
 CHROME_USER_DATA_DIR = Path(os.environ.get("VIDEOGET_CHROME_PROFILE_DIR", ROOT / "chrome_profile"))
 CHROME_PROFILE_DIR = CHROME_USER_DATA_DIR / "Default"
@@ -488,6 +489,47 @@ def _job_file_path(job: dict[str, Any]) -> Path | None:
     if path.exists() and path.is_file():
         return path
     return None
+
+
+def _cleanup_processing_files() -> int:
+    output_dir = _safe_output_dir()
+    cutoff = time.time() - PROCESSING_RETENTION_SECONDS
+    removed = 0
+    for item in output_dir.glob("*"):
+        if not item.is_file():
+            continue
+        if item.suffix.lower() not in VIDEO_FILE_EXTENSIONS and ".tmp." not in item.name:
+            continue
+        try:
+            if item.stat().st_mtime < cutoff:
+                item.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+async def _processing_cleanup_loop(_: web.Application) -> None:
+    while True:
+        removed = await asyncio.to_thread(_cleanup_processing_files)
+        if removed:
+            print(f"[cleanup] removed {removed} processing file(s) older than {PROCESSING_RETENTION_SECONDS}s")
+        await asyncio.sleep(60 * 60)
+
+
+async def _start_background_tasks(app: web.Application) -> None:
+    _safe_output_dir()
+    app["processing_cleanup_task"] = asyncio.create_task(_processing_cleanup_loop(app))
+
+
+async def _cleanup_background_tasks(app: web.Application) -> None:
+    task = app.get("processing_cleanup_task")
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 def _auth_args(job: dict[str, Any]) -> list[str]:
@@ -1030,7 +1072,7 @@ async def create_job(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": support_info["message"], "check": support_info}, status=400)
     download_url = support_info.get("normalized_url") or _normalize_download_url(url)
 
-    output_dir = _safe_output_dir(payload.get("output_dir"))
+    output_dir = _safe_output_dir()
     cookies_file = (payload.get("cookies_file") or "").strip()
     if cookies_file:
         cookies_path = Path(os.path.expanduser(cookies_file)).resolve()
@@ -1144,12 +1186,17 @@ async def check_platform_login(request: web.Request) -> web.Response:
 
 
 async def cancel_job(request: web.Request) -> web.Response:
-    job = jobs.get(request.match_info["job_id"])
+    job_id = request.match_info["job_id"]
+    job = jobs.get(job_id)
     if not job:
         return web.json_response({"success": False, "error": "Không tìm thấy job"}, status=404)
     client_id = _client_id_from_request(request)
     if request.query.get("scope") != "all" and client_id and job.get("client_id") != client_id:
         return web.json_response({"success": False, "error": "Không tìm thấy job"}, status=404)
+
+    if request.query.get("remove") == "1" and job.get("status") in {"completed", "failed", "cancelled"}:
+        jobs.pop(job_id, None)
+        return web.json_response({"success": True, "removed": 1})
 
     process = job.get("process")
     if process and process.returncode is None:
@@ -1336,6 +1383,8 @@ async def api_security(request: web.Request, handler: Any) -> web.StreamResponse
 
 def create_app() -> web.Application:
     app = web.Application(middlewares=[api_security, no_cache])
+    app.on_startup.append(_start_background_tasks)
+    app.on_cleanup.append(_cleanup_background_tasks)
     app.router.add_get("/", index)
     app.router.add_get("/admin", admin)
     app.router.add_get("/admin.html", admin)

@@ -5,15 +5,16 @@ VideoGet la web app tai video da nen tang. Client co the deploy len GitHub Pages
 ## Tinh Nang
 
 - Tai video tu YouTube, TikTok, Facebook video/reel/watch public, Google Drive public, link file truc tiep `.mp4`, `.m3u8`, `.mpd`.
-- Client cho user: dan link, chon nen tang, chon chat luong, xem trang thai tai.
+- Client cho user: dan link, chon nen tang, chon chat luong, chon folder tren may user va xem trang thai tai.
 - Lich su tai tren client duoc tach theo tung thiet bi/browser.
-- User co the nhap thu muc luu rieng cho tung luot tai.
+- BE tai/convert trong folder xu ly tam; client pull file ve folder user da chon khi job hoan tat.
 - Admin local: kiem tra Python, yt-dlp, ffmpeg, Chrome profile va hang doi.
 - Dung Chrome profile rieng cho nen tang can dang nhap.
 - Chat luong: `best`, `1080`, `720`, `480`, `360`.
 - Sau khi tai xong, backend convert sang MP4 H.264 + AAC de Windows/phone mo duoc de hon.
 - Neu user chon `1080`, `720`, `480`, `360`, buoc convert se gioi han dung height da chon. `best` giu do phan giai goc.
 - Neu co Bento4 tai `D:\sports_data\Bento4\cmakebuild\Release`, backend se toi uu MP4 sau khi convert.
+- File xu ly tam tren BE duoc giu 24h, cron nen trong app se tu don file cu.
 
 ## Cau Truc
 
@@ -24,6 +25,7 @@ VideoGet la web app tai video da nen tang. Client co the deploy len GitHub Pages
 ├── docs/                      # Client static cho GitHub Pages
 ├── tests/                     # Python tests
 ├── logs/                      # Log local, khong commit file .log
+├── processing_storage/        # File BE xu ly tam, gitignored, auto clean sau 24h
 ├── chrome_profile/            # Chrome profile rieng, gitignored
 ├── .runtime/                  # Token/ngrok/runtime logs, gitignored
 ├── _dist/                     # Goi portable, gitignored
@@ -71,11 +73,16 @@ Mo client local:
 http://127.0.0.1:8787/
 ```
 
-Thu muc video tai ve mac dinh:
+Thu muc BE xu ly tam:
 
 ```text
-C:\Users\Pc\video-downloader
+D:\be_video_downloader_mcp\processing_storage
 ```
+
+Folder luu tren may user duoc chon trong client bang nut `Chon`. Khi job hoan tat,
+client se pull file tu BE ve folder do, roi xoa job khoi danh sach. Neu trinh
+duyet khong ho tro chon folder truc tiep, user bam `Tai file` de tai ve theo
+folder download cua trinh duyet.
 
 ## Cau Hinh Chrome Profile
 

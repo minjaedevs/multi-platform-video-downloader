@@ -24,7 +24,7 @@
           <div class="section-head">
             <div>
               <h1>Tải video</h1>
-              <p>Dán link, chọn nền tảng và chất lượng. Hệ thống sẽ xử lý tải ở máy chủ local.</p>
+              <p>Dán link, chọn nền tảng và chất lượng. Máy chủ xử lý tạm, sau đó trả file về máy của bạn.</p>
             </div>
           </div>
 
@@ -54,14 +54,15 @@
             <option value="360">360p</option>
           </select>
 
-          <label for="outputDirInput">Nơi lưu trữ</label>
+          <label for="outputDirInput">Nơi lưu trên máy bạn</label>
           <div class="input-line">
             <span>📁</span>
-            <input id="outputDirInput" placeholder="Mặc định: C:\Users\Pc\video-downloader" />
+            <input id="outputDirInput" readonly placeholder="Chưa chọn folder" />
+            <button id="chooseFolderBtn" class="inline-action" type="button">Chọn</button>
           </div>
 
           <button class="primary" type="submit">↓ Tải ngay</button>
-          <p class="privacy">File được xử lý bởi máy chủ tải video. Bạn chỉ cần gửi link và theo dõi trạng thái.</p>
+          <p class="privacy">BE chỉ lưu file xử lý tạm thời. Khi hoàn tất, client sẽ tải file về folder bạn chọn.</p>
         </form>
 
         <section class="panel queue-panel client-queue">
@@ -71,7 +72,7 @@
               <p>Danh sách lượt tải đang được xử lý</p>
             </div>
             <div class="queue-actions">
-              <span id="downloadPath" class="path-pill" title="Đường dẫn thư mục chứa video tải về">Video lưu tại: --</span>
+              <span id="downloadPath" class="path-pill" title="Folder trên máy user để nhận video">Video lưu tại: --</span>
               <button id="copyPathBtn" class="ghost compact" type="button" disabled>Copy</button>
               <button id="refreshBtn" class="ghost" type="button">Làm mới</button>
             </div>

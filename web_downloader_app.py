@@ -30,6 +30,7 @@ DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("VIDEOGET_DOWNLOAD_DIR", Path.home() 
 CHROME_EXE = Path(os.environ.get("VIDEOGET_CHROME_EXE", r"C:\Program Files\Google\Chrome\Application\chrome.exe"))
 CHROME_USER_DATA_DIR = Path(os.environ.get("VIDEOGET_CHROME_PROFILE_DIR", ROOT / "chrome_profile"))
 CHROME_PROFILE_DIR = CHROME_USER_DATA_DIR / "Default"
+BENTO4_BIN_DIR = Path(os.environ.get("VIDEOGET_BENTO4_BIN_DIR", r"D:\sports_data\Bento4\cmakebuild\Release"))
 YOUTUBE_TEST_URL = "https://www.youtube.com/watch?v=tXv3TryZ6FA"
 APP_HOST = os.environ.get("VIDEOGET_HOST", "127.0.0.1")
 APP_PORT = int(os.environ.get("VIDEOGET_PORT", "8787"))
@@ -102,6 +103,18 @@ PROGRESS_RE = re.compile(
 
 def _yt_dlp_command() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
+
+
+def _bento4_tool(name: str) -> str | None:
+    exe_name = f"{name}.exe" if os.name == "nt" else name
+    candidate = BENTO4_BIN_DIR / exe_name
+    if candidate.exists():
+        return str(candidate)
+    return shutil.which(exe_name) or shutil.which(name)
+
+
+def _client_id_from_request(request: web.Request) -> str:
+    return re.sub(r"[^a-zA-Z0-9_.:-]", "", request.headers.get("X-VideoGet-Client", ""))[:120]
 
 
 def _lan_ip() -> str:
@@ -575,7 +588,47 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
 
     job["file_path"] = str(final_path)
     job["message"] = "Tải hoàn tất - MP4 H.264 tương thích Windows"
+    await _optimize_mp4_with_bento4(job, final_path)
     return True
+
+
+async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> None:
+    mp4fragment = _bento4_tool("mp4fragment")
+    if not mp4fragment or not file_path.exists() or file_path.suffix.lower() != ".mp4":
+        return
+
+    temp_path = file_path.with_name(f"{file_path.stem}.bento4.tmp.mp4")
+    try:
+        if temp_path.exists():
+            temp_path.unlink()
+
+        job["message"] = "Đang tối ưu MP4 bằng Bento4"
+        job.setdefault("log_lines", []).append(f"[tool] Optimizing MP4 with Bento4: {file_path.name}")
+        process = await asyncio.create_subprocess_exec(
+            mp4fragment,
+            "--quiet",
+            str(file_path),
+            str(temp_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ROOT),
+        )
+        output, _ = await process.communicate()
+        if output:
+            job.setdefault("log_lines", []).extend(output.decode("utf-8", errors="replace").splitlines()[-8:])
+        if process.returncode == 0 and temp_path.exists():
+            os.replace(temp_path, file_path)
+            job["message"] = "Tải hoàn tất - MP4 H.264 đã tối ưu"
+        else:
+            temp_path.unlink(missing_ok=True)
+            job["message"] = "Tải hoàn tất - MP4 H.264 tương thích Windows"
+    except OSError as exc:
+        job.setdefault("log_lines", []).append(f"[tool] Bento4 skipped: {exc}")
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        job["message"] = "Tải hoàn tất - MP4 H.264 tương thích Windows"
 
 
 async def _download_worker(job_id: str) -> None:
@@ -662,8 +715,13 @@ async def static_file(request: web.Request) -> web.FileResponse:
     return response
 
 
-async def list_jobs(_: web.Request) -> web.Response:
-    ordered = sorted(jobs.values(), key=lambda item: item["created_at"], reverse=True)
+async def list_jobs(request: web.Request) -> web.Response:
+    client_id = _client_id_from_request(request)
+    scope = request.query.get("scope", "device")
+    visible_jobs = jobs.values()
+    if scope != "all" and client_id:
+        visible_jobs = [job for job in visible_jobs if job.get("client_id") == client_id]
+    ordered = sorted(visible_jobs, key=lambda item: item["created_at"], reverse=True)
     return web.json_response({"jobs": [_public_job(job) for job in ordered]})
 
 
@@ -700,6 +758,7 @@ async def create_job(request: web.Request) -> web.Response:
     job_id = uuid.uuid4().hex[:10]
     job = {
         "id": job_id,
+        "client_id": _client_id_from_request(request),
         "url": download_url,
         "original_url": url,
         "source": support_info["source"],
@@ -802,6 +861,9 @@ async def cancel_job(request: web.Request) -> web.Response:
     job = jobs.get(request.match_info["job_id"])
     if not job:
         return web.json_response({"success": False, "error": "Không tìm thấy job"}, status=404)
+    client_id = _client_id_from_request(request)
+    if request.query.get("scope") != "all" and client_id and job.get("client_id") != client_id:
+        return web.json_response({"success": False, "error": "Không tìm thấy job"}, status=404)
 
     process = job.get("process")
     if process and process.returncode is None:
@@ -814,11 +876,13 @@ async def cancel_job(request: web.Request) -> web.Response:
     return web.json_response({"success": True, "job": _public_job(job)})
 
 
-async def clear_jobs(_: web.Request) -> web.Response:
+async def clear_jobs(request: web.Request) -> web.Response:
+    client_id = _client_id_from_request(request)
     removable = [
         job_id
         for job_id, job in jobs.items()
         if job["status"] in {"completed", "failed", "cancelled"}
+        and (request.query.get("scope") == "all" or not client_id or job.get("client_id") == client_id)
     ]
     for job_id in removable:
         jobs.pop(job_id, None)
@@ -913,7 +977,7 @@ def _apply_cors(request: web.Request, response: web.StreamResponse) -> web.Strea
         response.headers["Access-Control-Allow-Origin"] = "*" if "*" in ALLOWED_ORIGINS else origin
         response.headers["Vary"] = "Origin"
         response.headers["Access-Control-Allow-Headers"] = (
-            "Content-Type, X-VideoGet-Token, Authorization, ngrok-skip-browser-warning"
+            "Content-Type, X-VideoGet-Token, X-VideoGet-Client, Authorization, ngrok-skip-browser-warning"
         )
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     return response

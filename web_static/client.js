@@ -3,6 +3,7 @@ const jobsEl = document.querySelector("#jobs");
 const jobCountEl = document.querySelector("#jobCount");
 const urlInput = document.querySelector("#urlInput");
 const qualitySelect = document.querySelector("#qualitySelect");
+const outputDirInput = document.querySelector("#outputDirInput");
 const urlStatus = document.querySelector("#urlStatus");
 const serverInfo = document.querySelector("#serverInfo");
 const downloadPath = document.querySelector("#downloadPath");
@@ -15,6 +16,11 @@ if (queryApiBase) localStorage.setItem("VIDEOGET_API_BASE", queryApiBase);
 if (queryApiToken) localStorage.setItem("VIDEOGET_API_TOKEN", queryApiToken);
 const API_BASE = (queryApiBase || localStorage.getItem("VIDEOGET_API_BASE") || "").replace(/\/+$/, "");
 const API_TOKEN = queryApiToken || localStorage.getItem("VIDEOGET_API_TOKEN") || "";
+const CLIENT_ID_KEY = "VIDEOGET_CLIENT_ID";
+const CLIENT_ID = localStorage.getItem(CLIENT_ID_KEY) || (
+  crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+);
+localStorage.setItem(CLIENT_ID_KEY, CLIENT_ID);
 
 let activeSource = "youtube";
 let urlCheckTimer = null;
@@ -25,7 +31,11 @@ function apiUrl(path) {
 }
 
 function apiFetch(path, options = {}) {
-  const headers = { "ngrok-skip-browser-warning": "true", ...(options.headers || {}) };
+  const headers = {
+    "ngrok-skip-browser-warning": "true",
+    "X-VideoGet-Client": CLIENT_ID,
+    ...(options.headers || {}),
+  };
   if (API_TOKEN) {
     headers["X-VideoGet-Token"] = API_TOKEN;
   }
@@ -46,6 +56,10 @@ urlInput.addEventListener("input", () => {
 
 document.querySelector("#refreshBtn").addEventListener("click", loadJobs);
 copyPathBtn?.addEventListener("click", copyDownloadPath);
+outputDirInput?.addEventListener("input", () => {
+  if (!outputDirInput.value.trim()) return;
+  setDownloadPath(outputDirInput.value.trim());
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -65,7 +79,7 @@ form.addEventListener("submit", async (event) => {
       url,
       source: activeSource,
       quality: qualitySelect.value,
-      output_dir: null,
+      output_dir: outputDirInput.value.trim() || null,
       use_app_profile: true,
       cookies_file: null,
       use_browser_cookies: false,
@@ -232,15 +246,11 @@ async function loadConfig() {
     const config = await response.json();
     serverInfo.textContent = API_BASE || config.public_url;
     serverInfo.title = API_BASE || config.public_url;
-    downloadDirValue = config.download_dir || "";
-    if (downloadPath) {
-      downloadPath.textContent = `Video lưu tại: ${downloadDirValue || "chưa xác định"}`;
-      downloadPath.title = downloadDirValue || "Đường dẫn thư mục chứa video tải về";
+    const configuredDir = outputDirInput.value.trim() || config.download_dir || "";
+    if (outputDirInput && !outputDirInput.placeholder.includes(config.download_dir || "")) {
+      outputDirInput.placeholder = `Mặc định: ${config.download_dir || ""}`;
     }
-    if (copyPathBtn) {
-      copyPathBtn.disabled = !downloadDirValue;
-      copyPathBtn.textContent = "Copy";
-    }
+    setDownloadPath(configuredDir);
   } catch {
     serverInfo.textContent = "API chưa kết nối";
     downloadDirValue = "";
@@ -252,6 +262,18 @@ async function loadConfig() {
       copyPathBtn.disabled = true;
       copyPathBtn.textContent = "Copy";
     }
+  }
+}
+
+function setDownloadPath(path) {
+  downloadDirValue = path || "";
+  if (downloadPath) {
+    downloadPath.textContent = `Video lưu tại: ${downloadDirValue || "chưa xác định"}`;
+    downloadPath.title = downloadDirValue || "Đường dẫn thư mục chứa video tải về";
+  }
+  if (copyPathBtn) {
+    copyPathBtn.disabled = !downloadDirValue;
+    copyPathBtn.textContent = "Copy";
   }
 }
 

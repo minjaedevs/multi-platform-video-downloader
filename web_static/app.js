@@ -56,7 +56,7 @@ document.querySelector("#refreshBtn").addEventListener("click", async () => {
 document.querySelector("#checkSetupBtn").addEventListener("click", loadSetupStatus);
 
 document.querySelector("#clearBtn").addEventListener("click", async () => {
-  await apiFetch("/api/jobs/completed", { method: "DELETE" });
+  await apiFetch("/api/jobs/completed?scope=all", { method: "DELETE" });
   await loadJobs();
 });
 
@@ -122,7 +122,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 async function cancelJob(id) {
-  await apiFetch(`/api/jobs/${id}`, { method: "DELETE" });
+  await apiFetch(`/api/jobs/${id}?scope=all`, { method: "DELETE" });
   await loadJobs();
 }
 
@@ -352,7 +352,7 @@ async function loadConfig() {
 }
 
 async function loadJobs() {
-  const response = await apiFetch("/api/jobs");
+  const response = await apiFetch("/api/jobs?scope=all");
   const payload = await response.json();
   renderJobs(payload.jobs || []);
 }

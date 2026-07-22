@@ -28,7 +28,7 @@ cd D:\be_video_downloader_mcp
 In another terminal:
 
 ```powershell
-ngrok http 8787
+.\run_ngrok_8787.cmd
 ```
 
 GitHub Pages client FE lives in:

@@ -31,6 +31,18 @@ Nếu dùng tunnel, trỏ tunnel tới:
 http://127.0.0.1:8787
 ```
 
+Cấu hình ngrok lần đầu:
+
+```powershell
+.\configure_ngrok_token.cmd
+```
+
+Mở tunnel:
+
+```powershell
+.\run_ngrok_8787.cmd
+```
+
 Kết quả bạn sẽ có URL public kiểu:
 
 ```text

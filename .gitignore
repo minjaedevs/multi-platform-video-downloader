@@ -5,6 +5,7 @@ __pycache__/
 *.log
 chrome_profile/
 _dist/
+.runtime/
 .env
 .env.*
 !*env.example

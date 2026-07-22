@@ -29,7 +29,7 @@ function apiUrl(path) {
 }
 
 function apiFetch(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
+  const headers = { "ngrok-skip-browser-warning": "true", ...(options.headers || {}) };
   if (API_TOKEN) {
     headers["X-VideoGet-Token"] = API_TOKEN;
   }

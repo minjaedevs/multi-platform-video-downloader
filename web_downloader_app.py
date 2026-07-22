@@ -81,11 +81,11 @@ VIDEO_FILE_EXTENSIONS = {
 jobs: dict[str, dict[str, Any]] = {}
 
 QUALITY_FORMATS = {
-    "best": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
-    "1080": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo*[height<=1080]+bestaudio/best[height<=1080]",
-    "720": "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/bestvideo*[height<=720]+bestaudio/best[height<=720]",
-    "480": "bestvideo[ext=mp4][height<=480]+bestaudio[ext=m4a]/bestvideo*[height<=480]+bestaudio/best[height<=480]",
-    "360": "bestvideo[ext=mp4][height<=360]+bestaudio[ext=m4a]/bestvideo*[height<=360]+bestaudio/best[height<=360]",
+    "best": "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+    "1080": "bestvideo[ext=mp4][vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1][height<=1080]+bestaudio/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo*[height<=1080]+bestaudio/best[height<=1080]",
+    "720": "bestvideo[ext=mp4][vcodec^=avc1][height<=720]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1][height<=720]+bestaudio/bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/bestvideo*[height<=720]+bestaudio/best[height<=720]",
+    "480": "bestvideo[ext=mp4][vcodec^=avc1][height<=480]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1][height<=480]+bestaudio/bestvideo[ext=mp4][height<=480]+bestaudio[ext=m4a]/bestvideo*[height<=480]+bestaudio/best[height<=480]",
+    "360": "bestvideo[ext=mp4][vcodec^=avc1][height<=360]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1][height<=360]+bestaudio/bestvideo[ext=mp4][height<=360]+bestaudio[ext=m4a]/bestvideo*[height<=360]+bestaudio/best[height<=360]",
 }
 
 QUALITY_MAX_HEIGHTS = {
@@ -99,6 +99,7 @@ PROGRESS_RE = re.compile(
     r"\[download\]\s+(?P<percent>\d+(?:\.\d+)?)%.*?(?:of\s+(?P<size>\S+))?.*?(?:at\s+(?P<speed>\S+))?",
     re.IGNORECASE,
 )
+FFMPEG_TIME_RE = re.compile(r"^out_time_ms=(?P<time_ms>\d+)$")
 
 
 def _yt_dlp_command() -> list[str]:
@@ -181,6 +182,92 @@ def _ffmpeg_video_args_for_quality(quality: str) -> list[str]:
     if max_height:
         args.extend(["-vf", f"scale=-2:min(ih\\,{max_height}),setsar=1"])
     return args
+
+
+async def _probe_media(file_path: Path) -> dict[str, Any] | None:
+    ffprobe_path = shutil.which("ffprobe")
+    if not ffprobe_path or not file_path.exists():
+        return None
+
+    cmd = [
+        ffprobe_path,
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=index,codec_type,codec_name,pix_fmt,width,height",
+        "-show_entries",
+        "format=duration,size,format_name",
+        "-of",
+        "json",
+        str(file_path),
+    ]
+    return_code, output = await _run_command(cmd, timeout=30)
+    if return_code != 0:
+        return None
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+
+def _media_duration(probe: dict[str, Any] | None) -> float:
+    if not probe:
+        return 0.0
+    try:
+        return max(0.0, float(probe.get("format", {}).get("duration") or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _stream_for(probe: dict[str, Any] | None, codec_type: str) -> dict[str, Any] | None:
+    if not probe:
+        return None
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") == codec_type:
+            return stream
+    return None
+
+
+def _is_mp4_container(probe: dict[str, Any] | None) -> bool:
+    format_name = str((probe or {}).get("format", {}).get("format_name") or "")
+    return "mp4" in format_name or "mov" in format_name
+
+
+def _needs_h264_transcode(probe: dict[str, Any] | None, quality: str) -> bool:
+    video = _stream_for(probe, "video")
+    if not video:
+        return True
+
+    codec = str(video.get("codec_name") or "").lower()
+    pix_fmt = str(video.get("pix_fmt") or "").lower()
+    if codec not in {"h264", "avc1"}:
+        return True
+    if pix_fmt and pix_fmt not in {"yuv420p", "yuvj420p"}:
+        return True
+
+    max_height = QUALITY_MAX_HEIGHTS.get(str(quality))
+    if max_height:
+        try:
+            if int(video.get("height") or 0) > max_height:
+                return True
+        except (TypeError, ValueError):
+            return True
+
+    audio = _stream_for(probe, "audio")
+    if audio and str(audio.get("codec_name") or "").lower() not in {"aac", "mp4a"}:
+        return True
+
+    return False
+
+
+def _update_convert_progress(job: dict[str, Any], line: str, duration: float) -> None:
+    match = FFMPEG_TIME_RE.match(line)
+    if not match or duration <= 0:
+        return
+    out_seconds = int(match.group("time_ms")) / 1_000_000
+    percent = max(0.0, min(99.0, (out_seconds / duration) * 100))
+    job["progress"] = round(percent, 1)
+    job["message"] = f"Dang convert MP4 H.264 ({job['progress']}%)"
 
 
 def _find_downloaded_file(job: dict[str, Any], output_dir: Path, started_at: float) -> Path | None:
@@ -509,7 +596,7 @@ def _update_from_line(job: dict[str, Any], line: str) -> None:
             job["speed"] = progress.group("speed")
 
 
-async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, started_at: float) -> bool:
+async def _convert_to_compatible_mp4_legacy(job: dict[str, Any], output_dir: Path, started_at: float) -> bool:
     source_path = _find_downloaded_file(job, output_dir, started_at)
     if not source_path:
         job["message"] = "Tải xong nhưng chưa xác định được file để convert MP4."
@@ -599,6 +686,140 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
     return True
 
 
+async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, started_at: float) -> bool:
+    source_path = _find_downloaded_file(job, output_dir, started_at)
+    if not source_path:
+        job["message"] = "Tai xong nhung chua xac dinh duoc file de convert MP4."
+        return False
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        job["file_path"] = str(source_path)
+        job["message"] = "Tai xong nhung thieu ffmpeg de convert MP4 H.264."
+        return False
+
+    final_path = source_path if source_path.suffix.lower() == ".mp4" else source_path.with_suffix(".mp4")
+    temp_path = final_path.with_name(f"{final_path.stem}.compatible.tmp.mp4")
+    if temp_path.exists():
+        temp_path.unlink()
+
+    quality = str(job.get("quality") or "best")
+    probe = await _probe_media(source_path)
+    duration = _media_duration(probe)
+
+    if not _needs_h264_transcode(probe, quality):
+        job["file_path"] = str(final_path)
+        if source_path.resolve() != final_path.resolve() or not _is_mp4_container(probe):
+            job["status"] = "optimizing"
+            job["message"] = "Dang dong goi lai MP4 tuong thich"
+            job["progress"] = 99
+            job.setdefault("log_lines", []).append(f"[tool] Remuxing compatible MP4: {final_path.name}")
+            process = await asyncio.create_subprocess_exec(
+                ffmpeg_path,
+                "-y",
+                "-i",
+                str(source_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(temp_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(ROOT),
+            )
+            job["process"] = process
+            output, _ = await process.communicate()
+            if output:
+                job.setdefault("log_lines", []).extend(output.decode("utf-8", errors="replace").splitlines()[-12:])
+            if job.get("status") == "cancelled":
+                temp_path.unlink(missing_ok=True)
+                return False
+            if process.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size == 0:
+                temp_path.unlink(missing_ok=True)
+                job["message"] = f"Tai xong nhung remux MP4 that bai (ffmpeg exit {process.returncode})."
+                job["return_code"] = process.returncode
+                job["file_path"] = str(source_path)
+                return False
+            if source_path.resolve() != final_path.resolve() and source_path.exists():
+                source_path.unlink()
+            os.replace(temp_path, final_path)
+
+        job["file_path"] = str(final_path)
+        job["message"] = "Tai hoan tat - MP4 H.264/AAC tuong thich Windows"
+        await _optimize_mp4_with_bento4(job, final_path)
+        return True
+
+    quality_label = "best" if quality == "best" else f"{quality}p"
+    job["status"] = "converting"
+    job["message"] = f"Dang convert MP4 H.264 {quality_label} de Windows mo duoc"
+    job["progress"] = 0
+    job["file_path"] = str(final_path)
+    job.setdefault("log_lines", []).append(f"[tool] Converting to compatible MP4: {final_path.name}")
+
+    process = await asyncio.create_subprocess_exec(
+        ffmpeg_path,
+        "-y",
+        "-nostats",
+        "-i",
+        str(source_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        *_ffmpeg_video_args_for_quality(quality),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-movflags",
+        "+faststart",
+        "-progress",
+        "pipe:1",
+        str(temp_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=str(ROOT),
+    )
+    job["process"] = process
+
+    assert process.stdout is not None
+    async for raw_line in process.stdout:
+        clean = raw_line.decode("utf-8", errors="replace").strip()
+        if clean:
+            job.setdefault("log_lines", []).append(clean)
+            _update_convert_progress(job, clean, duration)
+
+    return_code = await process.wait()
+    if job.get("status") == "cancelled":
+        temp_path.unlink(missing_ok=True)
+        return False
+    if return_code != 0 or not temp_path.exists() or temp_path.stat().st_size == 0:
+        temp_path.unlink(missing_ok=True)
+        job["message"] = f"Tai xong nhung convert MP4 that bai (ffmpeg exit {return_code})."
+        job["return_code"] = return_code
+        job["file_path"] = str(source_path)
+        return False
+
+    try:
+        if source_path.resolve() != final_path.resolve() and source_path.exists():
+            source_path.unlink()
+        os.replace(temp_path, final_path)
+    except OSError as exc:
+        job["message"] = f"Convert xong nhung khong thay duoc file MP4: {exc}"
+        job["file_path"] = str(temp_path)
+        return False
+
+    job["file_path"] = str(final_path)
+    job["message"] = "Tai hoan tat - MP4 H.264 tuong thich Windows"
+    await _optimize_mp4_with_bento4(job, final_path)
+    return True
+
+
 async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> None:
     mp4compact = _bento4_tool("mp4compact")
     if not mp4compact or not file_path.exists() or file_path.suffix.lower() != ".mp4":
@@ -676,12 +897,10 @@ async def _download_worker(job_id: str) -> None:
 
         _update_from_line(job, f"[tool] Strategy failed: {strategy_name} (exit {return_code})")
 
-    job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-
     if job.get("status") == "cancelled":
         job["progress"] = job.get("progress", 0)
     elif return_code == 0:
-        converted = await _convert_to_compatible_mp4(job, output_dir, started_at)
+        converted = await _convert_to_compatible_mp4_v2(job, output_dir, started_at)
         if job.get("status") == "cancelled":
             job["progress"] = job.get("progress", 0)
         elif converted:
@@ -707,6 +926,9 @@ async def _download_worker(job_id: str) -> None:
             )
         else:
             job["message"] = job.get("message") or "yt-dlp failed"
+
+    if job.get("status") in {"completed", "failed", "cancelled"}:
+        job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 async def index(_: web.Request) -> web.FileResponse:

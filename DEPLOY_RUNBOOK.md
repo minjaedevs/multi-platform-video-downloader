@@ -219,7 +219,8 @@ Env mẫu Linux:
 ```text
 VIDEOGET_HOST=0.0.0.0
 VIDEOGET_PORT=8787
-VIDEOGET_DOWNLOAD_DIR=/data/video-downloads
+VIDEOGET_DOWNLOAD_DIR=/data/videoget-processing
+VIDEOGET_PROCESSING_RETENTION_SECONDS=86400
 VIDEOGET_CHROME_EXE=/usr/bin/google-chrome
 VIDEOGET_CHROME_PROFILE_DIR=/data/chrome_profile
 VIDEOGET_ALLOWED_ORIGINS=https://minjaedevs.github.io

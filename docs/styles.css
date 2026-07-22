@@ -492,6 +492,29 @@ select option {
   align-items: center;
 }
 
+.queue-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.path-pill {
+  display: inline-block;
+  max-width: min(420px, 42vw);
+  overflow: hidden;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 212, 20, 0.06);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #jobCount {
   display: inline-grid;
   min-width: 26px;
@@ -793,6 +816,19 @@ select option {
 
   .server-pill {
     max-width: 100%;
+  }
+
+  .queue-head {
+    align-items: stretch;
+  }
+
+  .queue-actions {
+    justify-content: stretch;
+  }
+
+  .path-pill {
+    max-width: none;
+    flex: 1;
   }
 
   .sources {

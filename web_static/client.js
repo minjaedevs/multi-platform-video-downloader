@@ -5,6 +5,7 @@ const urlInput = document.querySelector("#urlInput");
 const qualitySelect = document.querySelector("#qualitySelect");
 const urlStatus = document.querySelector("#urlStatus");
 const serverInfo = document.querySelector("#serverInfo");
+const downloadPath = document.querySelector("#downloadPath");
 
 const params = new URLSearchParams(window.location.search);
 const queryApiBase = params.get("api");
@@ -228,8 +229,16 @@ async function loadConfig() {
     const config = await response.json();
     serverInfo.textContent = API_BASE || config.public_url;
     serverInfo.title = API_BASE || config.public_url;
+    if (downloadPath) {
+      downloadPath.textContent = `Lưu tại: ${config.download_dir || "chưa xác định"}`;
+      downloadPath.title = config.download_dir || "Thư mục lưu video";
+    }
   } catch {
     serverInfo.textContent = "API chưa kết nối";
+    if (downloadPath) {
+      downloadPath.textContent = "Chưa lấy được thư mục lưu";
+      downloadPath.title = "Kiểm tra kết nối API";
+    }
   }
 }
 

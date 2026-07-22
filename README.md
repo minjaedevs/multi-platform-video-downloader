@@ -109,9 +109,10 @@ folder download cua trinh duyet.
 Ten file output co kem chat luong user chon:
 
 ```text
-Ten video [videoId] [best].mp4
-Ten video [videoId] [720].mp4
-Ten video [videoId] [360].mp4
+Ten video [best].mp4
+Ten video [720].mp4
+Ten video [360].mp4
+Ten video [720] (1).mp4
 ```
 
 ## Cau Hinh Chrome Profile

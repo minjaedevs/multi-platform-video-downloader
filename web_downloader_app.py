@@ -234,6 +234,36 @@ def _quality_filename_suffix(quality: Any) -> str:
     return re.sub(r"[^a-z0-9_-]", "", value) or "best"
 
 
+def _unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(1, 10_000):
+        candidate = path.with_name(f"{path.stem} ({index}){path.suffix}")
+        if not candidate.exists():
+            return candidate
+    return path.with_name(f"{path.stem} ({uuid.uuid4().hex[:6]}){path.suffix}")
+
+
+def _user_output_path(job: dict[str, Any], file_path: Path) -> Path:
+    quality = _quality_filename_suffix(job.get("quality"))
+    stem = file_path.stem
+    for media_id in _media_id_candidates(job):
+        stem = re.sub(rf"\s*\[{re.escape(media_id)}\]", "", stem)
+    stem = re.sub(r"\s*\[(best|1080|720|480|360)\]$", "", stem, flags=re.IGNORECASE).strip()
+    stem = stem or "video"
+    return _unique_path(file_path.with_name(f"{stem} [{quality}]{file_path.suffix}"))
+
+
+def _rename_for_user_output(job: dict[str, Any], file_path: Path) -> Path:
+    target = _user_output_path(job, file_path)
+    if file_path.resolve() == target.resolve():
+        return file_path
+    os.replace(file_path, target)
+    job["file_path"] = str(target)
+    _job_log(job, "final-rename", f"from={file_path.name} to={target.name}")
+    return target
+
+
 def _ffmpeg_video_args_for_quality(quality: str) -> list[str]:
     args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
     max_height = QUALITY_MAX_HEIGHTS.get(str(quality))
@@ -931,6 +961,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
         job["message"] = "Tai hoan tat - MP4 H.264/AAC tuong thich Windows"
         _job_log(job, "remux-completed", f"file={final_path.name}")
         await _optimize_mp4_with_bento4(job, final_path)
+        _rename_for_user_output(job, Path(job["file_path"]))
         return True
 
     quality_label = "best" if quality == "best" else f"{quality}p"
@@ -1000,6 +1031,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
     job["message"] = "Tai hoan tat - MP4 H.264 tuong thich Windows"
     _job_log(job, "convert-completed", f"file={final_path.name}")
     await _optimize_mp4_with_bento4(job, final_path)
+    _rename_for_user_output(job, Path(job["file_path"]))
     return True
 
 

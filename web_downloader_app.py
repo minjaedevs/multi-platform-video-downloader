@@ -170,6 +170,12 @@ def _is_tiktok_photo_url(url: str) -> bool:
     return "tiktok.com" in parsed.netloc.lower() and "/photo/" in parsed.path.lower()
 
 
+def _is_facebook_story_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    return ("facebook.com" in host or "fb.watch" in host) and "/stories/" in parsed.path.lower()
+
+
 def _normalize_download_url(url: str) -> str:
     parsed = urlparse(url)
     lowered_host = parsed.netloc.lower()
@@ -212,6 +218,12 @@ def _url_support_info(url: str, fallback: str = "other") -> dict[str, Any]:
             "supported": False,
             "source": source,
             "message": "Link này là TikTok photo/slideshow. Hiện tool chỉ hỗ trợ TikTok video dạng /video/<id>. Hãy gửi link video TikTok, không phải link photo.",
+        }
+    if source == "facebook" and _is_facebook_story_url(url):
+        return {
+            "supported": False,
+            "source": source,
+            "message": "Link nay la Facebook Story. Hien tool chi ho tro Facebook video/reel/watch public; Story chua ho tro. Hay gui link video, reel hoac watch thay vi story.",
         }
     if source == "direct":
         suffix = Path(urlparse(url).path.lower()).suffix

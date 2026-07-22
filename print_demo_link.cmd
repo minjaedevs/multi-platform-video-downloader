@@ -1,0 +1,3 @@
+@echo off
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$url=(Get-Content '.runtime\ngrok_url.txt' -Raw -ErrorAction SilentlyContinue).Trim(); $token=(Get-Content '.runtime\api_token.txt' -Raw -ErrorAction SilentlyContinue).Trim(); if (-not $url -or -not $token) { Write-Host 'Missing .runtime ngrok_url.txt or api_token.txt. Run BE and ngrok first.'; exit 1 }; Write-Host ''; Write-Host 'Client demo link:'; Write-Host ('https://minjaedevs.github.io/multi-platform-video-downloader/?api=' + $url + '&token=' + $token); Write-Host ''; Write-Host 'Admin local:'; Write-Host 'http://127.0.0.1:8787/admin'"

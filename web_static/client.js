@@ -30,6 +30,14 @@ function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
+function downloadUrl(jobId) {
+  const url = new URL(apiUrl(`/api/jobs/${encodeURIComponent(jobId)}/file`), window.location.href);
+  if (API_TOKEN) {
+    url.searchParams.set("token", API_TOKEN);
+  }
+  return url.toString();
+}
+
 function apiFetch(path, options = {}) {
   const headers = {
     "ngrok-skip-browser-warning": "true",
@@ -223,6 +231,9 @@ function renderJobs(jobs) {
       const isNext = job.id === nextQueuedId;
       const displayStatus = effectiveStatus(job);
       const meta = statusMeta(displayStatus, isNext);
+      const fileAction = displayStatus === "completed"
+        ? `<a class="job-download" href="${escapeHtml(downloadUrl(job.id))}" download>Tai file</a>`
+        : "";
       return `
         <article class="job ${displayStatus} ${isNext ? "next" : ""}">
           <div class="thumb">
@@ -240,6 +251,7 @@ function renderJobs(jobs) {
           <div class="job-status">
             <strong>${statusLabel(displayStatus)}</strong>
             <span>${Math.round(progress)}% ${job.speed ? "· " + escapeHtml(job.speed) : ""}</span>
+            ${fileAction}
           </div>
         </article>
       `;

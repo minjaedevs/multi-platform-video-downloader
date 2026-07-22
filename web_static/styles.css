@@ -786,6 +786,29 @@ select option {
   color: var(--yellow);
 }
 
+.job-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 210, 26, 0.5);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, var(--yellow), var(--yellow-2));
+  color: #080808;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.job-download:hover,
+.job-download:focus-visible {
+  outline: 0;
+  box-shadow: 0 10px 24px rgba(255, 184, 0, 0.22);
+}
+
 .job.downloading .job-status strong {
   color: var(--yellow);
 }

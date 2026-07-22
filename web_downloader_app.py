@@ -19,7 +19,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from aiohttp import web
 
@@ -478,6 +478,16 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         for key, value in job.items()
         if key not in {"process", "task", "log_lines"}
     } | {"log_tail": job.get("log_lines", [])[-12:]}
+
+
+def _job_file_path(job: dict[str, Any]) -> Path | None:
+    file_path = str(job.get("file_path") or "").strip().strip('"')
+    if not file_path:
+        return None
+    path = Path(file_path)
+    if path.exists() and path.is_file():
+        return path
+    return None
 
 
 def _auth_args(job: dict[str, Any]) -> list[str]:
@@ -1165,6 +1175,31 @@ async def clear_jobs(request: web.Request) -> web.Response:
     return web.json_response({"success": True, "removed": len(removable)})
 
 
+async def download_job_file(request: web.Request) -> web.StreamResponse:
+    job = jobs.get(request.match_info["job_id"])
+    if not job:
+        return web.json_response({"success": False, "error": "Khong tim thay job"}, status=404)
+
+    client_id = _client_id_from_request(request)
+    if request.query.get("scope") != "all" and client_id and job.get("client_id") != client_id:
+        return web.json_response({"success": False, "error": "Khong tim thay job"}, status=404)
+    if job.get("status") != "completed":
+        return web.json_response({"success": False, "error": "File chua san sang de tai ve"}, status=409)
+
+    file_path = _job_file_path(job)
+    if not file_path:
+        return web.json_response({"success": False, "error": "Khong tim thay file tren server"}, status=404)
+
+    response = web.FileResponse(
+        file_path,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file_path.name)}",
+            "Cache-Control": "no-store",
+        },
+    )
+    return response
+
+
 async def get_config(_: web.Request) -> web.Response:
     output_dir = _safe_output_dir()
     lan_ip = _lan_ip()
@@ -1263,7 +1298,7 @@ def _request_token(request: web.Request) -> str:
     bearer = request.headers.get("Authorization", "")
     if bearer.lower().startswith("bearer "):
         return bearer[7:].strip()
-    return request.headers.get("X-VideoGet-Token", "").strip()
+    return request.headers.get("X-VideoGet-Token", "").strip() or request.query.get("token", "").strip()
 
 
 def _is_local_peer_request(request: web.Request) -> bool:
@@ -1313,6 +1348,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/auth/check", check_platform_login)
     app.router.add_get("/api/jobs", list_jobs)
     app.router.add_post("/api/jobs", create_job)
+    app.router.add_get("/api/jobs/{job_id}/file", download_job_file)
     app.router.add_delete("/api/jobs/completed", clear_jobs)
     app.router.add_delete("/api/jobs/{job_id}", cancel_job)
     app.router.add_static("/static", STATIC_DIR, show_index=False)

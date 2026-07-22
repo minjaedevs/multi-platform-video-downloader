@@ -603,6 +603,20 @@ select option {
   background: var(--yellow);
 }
 
+.job.converting,
+.job.optimizing {
+  border-color: rgba(106, 167, 255, 0.5);
+  background:
+    linear-gradient(90deg, rgba(106, 167, 255, 0.1), transparent 44%),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: 0 14px 40px rgba(106, 167, 255, 0.1);
+}
+
+.job.converting::before,
+.job.optimizing::before {
+  background: var(--blue);
+}
+
 .job.next {
   border-color: rgba(106, 167, 255, 0.46);
   background:
@@ -686,6 +700,13 @@ select option {
   color: var(--yellow);
 }
 
+.status-badge.converting,
+.status-badge.optimizing {
+  border-color: rgba(106, 167, 255, 0.48);
+  background: rgba(106, 167, 255, 0.13);
+  color: var(--blue);
+}
+
 .status-badge.next {
   border-color: rgba(106, 167, 255, 0.46);
   background: rgba(106, 167, 255, 0.13);
@@ -767,6 +788,11 @@ select option {
 
 .job.downloading .job-status strong {
   color: var(--yellow);
+}
+
+.job.converting .job-status strong,
+.job.optimizing .job-status strong {
+  color: var(--blue);
 }
 
 .job.next .job-status strong {

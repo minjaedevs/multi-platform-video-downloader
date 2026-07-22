@@ -250,6 +250,8 @@ function statusLabel(status) {
   return {
     queued: "Đang chờ",
     downloading: "Đang tải",
+    converting: "Đang convert",
+    optimizing: "Đang tối ưu",
     completed: "Hoàn tất",
     failed: "Lỗi",
     cancelled: "Đã hủy",
@@ -263,10 +265,23 @@ function statusMeta(status, isNext) {
   return {
     queued: { label: "Đang chờ", tone: "queued" },
     downloading: { label: "Đang chạy", tone: "running" },
+    converting: { label: "Đang convert", tone: "converting" },
+    optimizing: { label: "Đang tối ưu", tone: "optimizing" },
     completed: { label: "Hoàn tất", tone: "completed" },
     failed: { label: "Lỗi", tone: "failed" },
     cancelled: { label: "Đã hủy", tone: "cancelled" },
   }[status] || { label: status, tone: "neutral" };
+}
+
+function effectiveStatus(job) {
+  const message = String(job.message || "").toLowerCase();
+  if (job.status === "downloading" && (message.includes("converting") || message.includes("convert"))) {
+    return "converting";
+  }
+  if (job.status === "downloading" && (message.includes("optimizing") || message.includes("bento4") || message.includes("tối ưu"))) {
+    return "optimizing";
+  }
+  return job.status;
 }
 
 function fileName(job) {
@@ -296,9 +311,10 @@ function renderJobs(jobs) {
   jobsEl.innerHTML = jobs
     .map((job, index) => {
       const progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
-      const canCancel = ["queued", "downloading"].includes(job.status);
       const isNext = job.id === nextQueuedId;
-      const meta = statusMeta(job.status, isNext);
+      const displayStatus = effectiveStatus(job);
+      const canCancel = ["queued", "downloading", "converting", "optimizing"].includes(displayStatus);
+      const meta = statusMeta(displayStatus, isNext);
       const action = canCancel
         ? `<button class="icon-btn cancel" title="Hủy tải" onclick="cancelJob('${job.id}')">×</button>`
         : `<button class="icon-btn done" title="${escapeHtml(meta.label)}">✓</button>`;
@@ -307,7 +323,7 @@ function renderJobs(jobs) {
         : "";
 
       return `
-        <article class="job ${job.status} ${isNext ? "next" : ""}">
+        <article class="job ${displayStatus} ${isNext ? "next" : ""}">
           <div class="thumb">
             <span>${sourceLabel(job)}</span>
             <small>#${jobs.length - index}</small>
@@ -322,7 +338,7 @@ function renderJobs(jobs) {
             ${logDetails}
           </div>
           <div class="job-status">
-            <strong>${statusLabel(job.status)}</strong>
+            <strong>${statusLabel(displayStatus)}</strong>
             <span>${Math.round(progress)}% ${job.speed ? "· " + escapeHtml(job.speed) : ""}</span>
           </div>
           ${action}

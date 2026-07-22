@@ -528,6 +528,7 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
 
     quality = str(job.get("quality") or "best")
     quality_label = "best" if quality == "best" else f"{quality}p"
+    job["status"] = "converting"
     job["message"] = f"Đang convert MP4 H.264 {quality_label} để Windows mở được"
     job["progress"] = max(float(job.get("progress") or 0), 99)
     job["file_path"] = str(final_path)
@@ -567,6 +568,12 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
             job.setdefault("log_lines", []).append(clean)
 
     return_code = await process.wait()
+    if job.get("status") == "cancelled":
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
     if return_code != 0 or not temp_path.exists():
         try:
             temp_path.unlink(missing_ok=True)
@@ -593,8 +600,8 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
 
 
 async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> None:
-    mp4fragment = _bento4_tool("mp4fragment")
-    if not mp4fragment or not file_path.exists() or file_path.suffix.lower() != ".mp4":
+    mp4compact = _bento4_tool("mp4compact")
+    if not mp4compact or not file_path.exists() or file_path.suffix.lower() != ".mp4":
         return
 
     temp_path = file_path.with_name(f"{file_path.stem}.bento4.tmp.mp4")
@@ -602,11 +609,11 @@ async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> Non
         if temp_path.exists():
             temp_path.unlink()
 
+        job["status"] = "optimizing"
         job["message"] = "Đang tối ưu MP4 bằng Bento4"
-        job.setdefault("log_lines", []).append(f"[tool] Optimizing MP4 with Bento4: {file_path.name}")
+        job.setdefault("log_lines", []).append(f"[tool] Optimizing MP4 with Bento4 mp4compact: {file_path.name}")
         process = await asyncio.create_subprocess_exec(
-            mp4fragment,
-            "--quiet",
+            mp4compact,
             str(file_path),
             str(temp_path),
             stdout=asyncio.subprocess.PIPE,
@@ -614,9 +621,12 @@ async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> Non
             cwd=str(ROOT),
         )
         output, _ = await process.communicate()
+        if job.get("status") == "cancelled":
+            temp_path.unlink(missing_ok=True)
+            return
         if output:
             job.setdefault("log_lines", []).extend(output.decode("utf-8", errors="replace").splitlines()[-8:])
-        if process.returncode == 0 and temp_path.exists():
+        if process.returncode == 0 and temp_path.exists() and temp_path.stat().st_size > 0:
             os.replace(temp_path, file_path)
             job["message"] = "Tải hoàn tất - MP4 H.264 đã tối ưu"
         else:
@@ -671,7 +681,10 @@ async def _download_worker(job_id: str) -> None:
     if job.get("status") == "cancelled":
         job["progress"] = job.get("progress", 0)
     elif return_code == 0:
-        if await _convert_to_compatible_mp4(job, output_dir, started_at):
+        converted = await _convert_to_compatible_mp4(job, output_dir, started_at)
+        if job.get("status") == "cancelled":
+            job["progress"] = job.get("progress", 0)
+        elif converted:
             job["status"] = "completed"
             job["progress"] = 100
             job["return_code"] = 0

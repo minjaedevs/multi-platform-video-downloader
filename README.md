@@ -106,6 +106,14 @@ client se pull file tu BE ve folder do, roi xoa job khoi danh sach. Neu trinh
 duyet khong ho tro chon folder truc tiep, user bam `Tai file` de tai ve theo
 folder download cua trinh duyet.
 
+Ten file output co kem chat luong user chon:
+
+```text
+Ten video [videoId] [best].mp4
+Ten video [videoId] [720].mp4
+Ten video [videoId] [360].mp4
+```
+
 ## Cau Hinh Chrome Profile
 
 Trong admin:

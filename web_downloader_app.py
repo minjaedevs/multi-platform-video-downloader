@@ -227,6 +227,13 @@ def _format_for_quality(quality: str) -> list[str]:
     return ["-f", QUALITY_FORMATS.get(quality, QUALITY_FORMATS["best"])]
 
 
+def _quality_filename_suffix(quality: Any) -> str:
+    value = str(quality or "best").strip().lower()
+    if value not in QUALITY_FORMATS:
+        value = "best"
+    return re.sub(r"[^a-z0-9_-]", "", value) or "best"
+
+
 def _ffmpeg_video_args_for_quality(quality: str) -> list[str]:
     args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
     max_height = QUALITY_MAX_HEIGHTS.get(str(quality))
@@ -602,7 +609,7 @@ def _auth_args(job: dict[str, Any]) -> list[str]:
 
 
 def _common_download_args(job: dict[str, Any], output_dir: Path, url: str | None = None) -> list[str]:
-    output_template = "%(title).180B [%(id)s].%(ext)s"
+    output_template = f"%(title).180B [%(id)s] [{_quality_filename_suffix(job.get('quality'))}].%(ext)s"
     return [
         "--newline",
         "--no-warnings",

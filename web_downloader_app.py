@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import signal
+import platform
 import socket
 import sqlite3
 import subprocess
@@ -30,7 +31,12 @@ STATIC_DIR = ROOT / "web_static"
 LOG_DIR = ROOT / "logs"
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("VIDEOGET_DOWNLOAD_DIR", ROOT / "processing_storage"))
 PROCESSING_RETENTION_SECONDS = int(os.environ.get("VIDEOGET_PROCESSING_RETENTION_SECONDS", str(24 * 60 * 60)))
-CHROME_EXE = Path(os.environ.get("VIDEOGET_CHROME_EXE", r"C:\Program Files\Google\Chrome\Application\chrome.exe"))
+DEFAULT_CHROME_EXE = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if platform.system() == "Darwin"
+    else r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+)
+CHROME_EXE = Path(os.environ.get("VIDEOGET_CHROME_EXE", DEFAULT_CHROME_EXE))
 CHROME_USER_DATA_DIR = Path(os.environ.get("VIDEOGET_CHROME_PROFILE_DIR", ROOT / "chrome_profile"))
 CHROME_PROFILE_DIR = CHROME_USER_DATA_DIR / "Default"
 BUNDLED_BENTO4_BIN_DIR = ROOT / "tools" / "bento4" / "bin"

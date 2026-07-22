@@ -11,7 +11,8 @@ _dist/
 .runtime/
 .env
 .env.*
-!*env.example
+!*.env.example
+!.env.*.example
 *cookies*.txt
 ngrok.yml
 ngrok.yaml

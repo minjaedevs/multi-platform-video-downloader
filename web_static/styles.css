@@ -818,6 +818,7 @@ select option {
   font-weight: 900;
   text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .job-download:hover,

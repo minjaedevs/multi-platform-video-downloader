@@ -34,14 +34,6 @@ function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
-function downloadUrl(jobId) {
-  const url = new URL(apiUrl(`/api/jobs/${encodeURIComponent(jobId)}/file`), window.location.href);
-  if (API_TOKEN) {
-    url.searchParams.set("token", API_TOKEN);
-  }
-  return url.toString();
-}
-
 function contentDispositionFileName(headerValue) {
   const value = String(headerValue || "");
   const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
@@ -108,6 +100,42 @@ async function saveCompletedJobToUserFolder(job) {
   }
 }
 
+async function downloadJobManually(jobId, fallbackName = "") {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/file`);
+  if (!response.ok) {
+    alert("Không tải được file. Hãy làm mới trạng thái hoặc kiểm tra BE/ngrok.");
+    return;
+  }
+
+  const serverName = contentDispositionFileName(response.headers.get("Content-Disposition")) || fallbackName || `${jobId}.mp4`;
+  const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+
+  if (downloadDirHandle) {
+    const fileHandle = await downloadDirHandle.getFileHandle(safeName, { create: true });
+    const writable = await fileHandle.createWritable();
+    if (response.body?.pipeTo) {
+      await response.body.pipeTo(writable);
+    } else {
+      await writable.write(await response.blob());
+      await writable.close();
+    }
+  } else {
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = safeName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  }
+
+  savedJobs.add(jobId);
+  await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}?remove=1`, { method: "DELETE" }).catch(() => {});
+  await loadJobs();
+}
+
 function pullCompletedJobs(jobs) {
   if (!downloadDirHandle) return;
   jobs
@@ -135,11 +163,12 @@ chooseFolderBtn?.addEventListener("click", chooseDownloadFolder);
 jobsEl?.addEventListener("click", (event) => {
   const link = event.target.closest("[data-download-job]");
   if (!link) return;
+  event.preventDefault();
   const jobId = link.dataset.downloadJob;
-  window.setTimeout(async () => {
-    await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}?remove=1`, { method: "DELETE" }).catch(() => {});
-    await loadJobs();
-  }, 3000);
+  downloadJobManually(jobId, link.dataset.fileName || "").catch((error) => {
+    console.error(error);
+    alert("Không tải được file qua ngrok. Hãy kiểm tra API token hoặc thử lại.");
+  });
 });
 
 form.addEventListener("submit", async (event) => {
@@ -304,8 +333,9 @@ function renderJobs(jobs) {
       const isNext = job.id === nextQueuedId;
       const displayStatus = effectiveStatus(job);
       const meta = statusMeta(displayStatus, isNext);
+      const currentFileName = fileName(job);
       const fileAction = displayStatus === "completed"
-        ? `<a class="job-download" href="${escapeHtml(downloadUrl(job.id))}" data-download-job="${escapeHtml(job.id)}" download>Tai file</a>`
+        ? `<button class="job-download" type="button" data-download-job="${escapeHtml(job.id)}" data-file-name="${escapeHtml(currentFileName)}">Tai file</button>`
         : "";
       return `
         <article class="job ${displayStatus} ${isNext ? "next" : ""}">
@@ -315,7 +345,7 @@ function renderJobs(jobs) {
           </div>
           <div class="job-main">
             <div class="job-title-row">
-              <div class="job-title">${escapeHtml(fileName(job))}</div>
+              <div class="job-title">${escapeHtml(currentFileName)}</div>
               <span class="status-badge ${meta.tone}">${escapeHtml(meta.label)}</span>
             </div>
             <div class="meta">Video ${escapeHtml(job.quality)} · ${escapeHtml(job.size || job.message || "Đang xác định dung lượng")}</div>

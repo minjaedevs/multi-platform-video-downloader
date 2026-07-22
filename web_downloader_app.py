@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import re
@@ -925,9 +926,16 @@ def _request_token(request: web.Request) -> str:
     return request.headers.get("X-VideoGet-Token", "").strip()
 
 
-def _is_local_host_request(request: web.Request) -> bool:
-    host = request.host.rsplit(":", 1)[0].strip("[]").lower()
-    return host in {"127.0.0.1", "localhost", "::1"}
+def _is_local_peer_request(request: web.Request) -> bool:
+    peername = request.transport.get_extra_info("peername") if request.transport else None
+    if not peername:
+        return False
+
+    peer_host = peername[0] if isinstance(peername, tuple) and peername else str(peername)
+    try:
+        return ipaddress.ip_address(peer_host).is_loopback
+    except ValueError:
+        return False
 
 
 @web.middleware
@@ -939,7 +947,7 @@ async def api_security(request: web.Request, handler: Any) -> web.StreamResponse
         request.path.startswith("/api/")
         and request.path != "/api/health"
         and API_TOKEN
-        and not _is_local_host_request(request)
+        and not _is_local_peer_request(request)
     ):
         if _request_token(request) != API_TOKEN:
             return _apply_cors(

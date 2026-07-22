@@ -11,6 +11,9 @@ if "%VIDEOGET_API_TOKEN%"=="" (
   for /f %%A in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"') do set "VIDEOGET_API_TOKEN=%%A"
 )
 
+if not exist "%~dp0.runtime" mkdir "%~dp0.runtime"
+> "%~dp0.runtime\api_token.txt" echo %VIDEOGET_API_TOKEN%
+
 if exist "%LOCALAPPDATA%\Python\bin\python.exe" (
   set "PYTHON_EXE=%LOCALAPPDATA%\Python\bin\python.exe"
 ) else (
@@ -30,7 +33,7 @@ if defined LAN_IP echo LAN API:   http://%LAN_IP%:%VIDEOGET_PORT%
 echo API token: %VIDEOGET_API_TOKEN%
 echo.
 echo Public FE example:
-echo https://your-frontend-domain/?api=https://your-public-api-domain&token=%VIDEOGET_API_TOKEN%
+echo https://your-frontend-domain/?api=https://your-public-api-domain^&token=%VIDEOGET_API_TOKEN%
 echo.
 echo Do not expose this permanently without a real reverse proxy, HTTPS, and stronger auth.
 "%PYTHON_EXE%" "%~dp0web_downloader_app.py"

@@ -39,6 +39,14 @@ VideoGet la web app tai video da nen tang. Client co the deploy len GitHub Pages
 ## Cai Dat
 
 ```powershell
+git clone https://github.com/minjaedevs/multi-platform-video-downloader.git
+cd multi-platform-video-downloader
+.\install_dependencies.cmd
+```
+
+Neu repo da nam san tren may:
+
+```powershell
 cd D:\be_video_downloader_mcp
 .\install_dependencies.cmd
 ```
@@ -57,8 +65,15 @@ Can co:
 Chay backend:
 
 ```powershell
+cd multi-platform-video-downloader
+.\run_web_local.cmd
+```
+
+Neu dang lam tren folder hien tai:
+
+```powershell
 cd D:\be_video_downloader_mcp
-.\run_public_api_test.cmd
+.\run_web_local.cmd
 ```
 
 Mo admin local:
@@ -229,8 +244,10 @@ GET    /api/config
 POST   /api/check-url
 GET    /api/jobs
 POST   /api/jobs
+GET    /api/jobs/{job_id}/file
 DELETE /api/jobs/completed
 DELETE /api/jobs/{job_id}
+DELETE /api/jobs/{job_id}?remove=1
 POST   /api/auth/open
 POST   /api/auth/check
 GET    /api/setup/status

@@ -74,26 +74,22 @@ async function chooseDownloadFolder() {
 async function saveCompletedJobToUserFolder(job) {
   if (!downloadDirHandle || savingJobs.has(job.id) || savedJobs.has(job.id)) return;
   savingJobs.add(job.id);
+  setUrlStatus(`Đang lưu file về folder ${downloadDirHandle.name}...`, "ok");
   try {
     const response = await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}/file`);
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
     const serverName = contentDispositionFileName(response.headers.get("Content-Disposition")) || fileName(job) || `${job.id}.mp4`;
     const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
-    const fileHandle = await downloadDirHandle.getFileHandle(safeName, { create: true });
-    const writable = await fileHandle.createWritable();
-    if (response.body?.pipeTo) {
-      await response.body.pipeTo(writable);
-    } else {
-      await writable.write(await response.blob());
-      await writable.close();
-    }
+    await writeResponseToFolder(response, safeName);
 
     savedJobs.add(job.id);
+    setUrlStatus(`Đã lưu file vào folder ${downloadDirHandle.name}.`, "ok");
     await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}?remove=1`, { method: "DELETE" });
     await loadJobs();
   } catch (error) {
     console.error(error);
+    setUrlStatus("Không tự lưu được file. Job vẫn giữ lại, bấm 'Tai file' để thử lại.", "bad");
     alert("Không tự lưu được file vào folder đã chọn. Hãy bấm 'Tai file' để tải thủ công.");
   } finally {
     savingJobs.delete(job.id);
@@ -111,14 +107,9 @@ async function downloadJobManually(jobId, fallbackName = "") {
   const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
 
   if (downloadDirHandle) {
-    const fileHandle = await downloadDirHandle.getFileHandle(safeName, { create: true });
-    const writable = await fileHandle.createWritable();
-    if (response.body?.pipeTo) {
-      await response.body.pipeTo(writable);
-    } else {
-      await writable.write(await response.blob());
-      await writable.close();
-    }
+    setUrlStatus(`Đang lưu file về folder ${downloadDirHandle.name}...`, "ok");
+    await writeResponseToFolder(response, safeName);
+    setUrlStatus(`Đã lưu file vào folder ${downloadDirHandle.name}.`, "ok");
   } else {
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);
@@ -134,6 +125,38 @@ async function downloadJobManually(jobId, fallbackName = "") {
   savedJobs.add(jobId);
   await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}?remove=1`, { method: "DELETE" }).catch(() => {});
   await loadJobs();
+}
+
+async function writeResponseToFolder(response, safeName) {
+  const expectedBytes = Number(response.headers.get("Content-Length") || 0);
+  const fileHandle = await downloadDirHandle.getFileHandle(safeName, { create: true });
+  const writable = await fileHandle.createWritable();
+  let writtenBytes = 0;
+
+  try {
+    if (response.body?.getReader) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        writtenBytes += value.byteLength;
+        await writable.write(value);
+      }
+    } else {
+      const blob = await response.blob();
+      writtenBytes = blob.size;
+      await writable.write(blob);
+    }
+    await writable.close();
+  } catch (error) {
+    await writable.abort().catch(() => {});
+    throw error;
+  }
+
+  if (expectedBytes && writtenBytes !== expectedBytes) {
+    throw new Error(`Incomplete file: wrote ${writtenBytes}/${expectedBytes} bytes`);
+  }
+  return writtenBytes;
 }
 
 function pullCompletedJobs(jobs) {

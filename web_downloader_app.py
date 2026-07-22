@@ -1361,6 +1361,7 @@ def _apply_cors(request: web.Request, response: web.StreamResponse) -> web.Strea
         response.headers["Access-Control-Allow-Headers"] = (
             "Content-Type, X-VideoGet-Token, X-VideoGet-Client, Authorization, ngrok-skip-browser-warning"
         )
+        response.headers["Access-Control-Expose-Headers"] = "Content-Disposition, Content-Length"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     return response
 

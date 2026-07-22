@@ -621,7 +621,8 @@ select option {
 }
 
 .job.converting,
-.job.optimizing {
+.job.optimizing,
+.job.pulling {
   border-color: rgba(106, 167, 255, 0.5);
   background:
     linear-gradient(90deg, rgba(106, 167, 255, 0.1), transparent 44%),
@@ -630,7 +631,8 @@ select option {
 }
 
 .job.converting::before,
-.job.optimizing::before {
+.job.optimizing::before,
+.job.pulling::before {
   background: var(--blue);
 }
 
@@ -650,7 +652,8 @@ select option {
 }
 
 .job.failed,
-.job.cancelled {
+.job.cancelled,
+.job.pull_failed {
   border-color: rgba(255, 107, 107, 0.34);
 }
 
@@ -718,7 +721,8 @@ select option {
 }
 
 .status-badge.converting,
-.status-badge.optimizing {
+.status-badge.optimizing,
+.status-badge.pulling {
   border-color: rgba(106, 167, 255, 0.48);
   background: rgba(106, 167, 255, 0.13);
   color: var(--blue);
@@ -832,7 +836,8 @@ select option {
 }
 
 .job.converting .job-status strong,
-.job.optimizing .job-status strong {
+.job.optimizing .job-status strong,
+.job.pulling .job-status strong {
   color: var(--blue);
 }
 
@@ -845,7 +850,8 @@ select option {
 }
 
 .job.failed .job-status strong,
-.job.cancelled .job-status strong {
+.job.cancelled .job-status strong,
+.job.pull_failed .job-status strong {
   color: var(--red);
 }
 

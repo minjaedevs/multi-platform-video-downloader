@@ -29,6 +29,7 @@ let downloadDirValue = "";
 let downloadDirHandle = null;
 const savingJobs = new Set();
 const savedJobs = new Set();
+const jobTransfers = new Map();
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -73,7 +74,14 @@ async function chooseDownloadFolder() {
 
 async function saveCompletedJobToUserFolder(job) {
   if (!downloadDirHandle || savingJobs.has(job.id) || savedJobs.has(job.id)) return;
+  if (jobTransfers.get(job.id)?.status === "pull_failed") return;
   savingJobs.add(job.id);
+  setJobTransfer(job.id, {
+    status: "pulling",
+    progress: 0,
+    message: `Đang kéo file về folder ${downloadDirHandle.name}...`,
+  });
+  renderTransferPatch(job.id);
   setUrlStatus(`Đang lưu file về folder ${downloadDirHandle.name}...`, "ok");
   try {
     const response = await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}/file`);
@@ -81,14 +89,26 @@ async function saveCompletedJobToUserFolder(job) {
 
     const serverName = contentDispositionFileName(response.headers.get("Content-Disposition")) || fileName(job) || `${job.id}.mp4`;
     const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
-    await writeResponseToFolder(response, safeName);
+    await writeResponseToFolder(response, safeName, job.id);
 
     savedJobs.add(job.id);
+    setJobTransfer(job.id, {
+      status: "saved",
+      progress: 100,
+      message: `Đã lưu vào ${downloadDirHandle.name}`,
+    });
+    renderTransferPatch(job.id);
     setUrlStatus(`Đã lưu file vào folder ${downloadDirHandle.name}.`, "ok");
     await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}?remove=1`, { method: "DELETE" });
     await loadJobs();
   } catch (error) {
     console.error(error);
+    setJobTransfer(job.id, {
+      status: "pull_failed",
+      progress: 0,
+      message: `Lỗi lưu về máy: ${error.message || "không xác định"}`,
+    });
+    renderTransferPatch(job.id);
     setUrlStatus("Không tự lưu được file. Job vẫn giữ lại, bấm 'Tai file' để thử lại.", "bad");
     alert("Không tự lưu được file vào folder đã chọn. Hãy bấm 'Tai file' để tải thủ công.");
   } finally {
@@ -97,41 +117,71 @@ async function saveCompletedJobToUserFolder(job) {
 }
 
 async function downloadJobManually(jobId, fallbackName = "") {
-  const response = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/file`);
-  if (!response.ok) {
-    alert("Không tải được file. Hãy làm mới trạng thái hoặc kiểm tra BE/ngrok.");
-    return;
+  try {
+    jobTransfers.delete(jobId);
+    setJobTransfer(jobId, {
+      status: "pulling",
+      progress: 0,
+      message: downloadDirHandle ? `Đang kéo file về folder ${downloadDirHandle.name}...` : "Đang chuẩn bị tải về trình duyệt...",
+    });
+    renderTransferPatch(jobId);
+    const response = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/file`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const serverName = contentDispositionFileName(response.headers.get("Content-Disposition")) || fallbackName || `${jobId}.mp4`;
+    const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+
+    if (downloadDirHandle) {
+      setUrlStatus(`Đang lưu file về folder ${downloadDirHandle.name}...`, "ok");
+      await writeResponseToFolder(response, safeName, jobId);
+      setUrlStatus(`Đã lưu file vào folder ${downloadDirHandle.name}.`, "ok");
+    } else {
+      setJobTransfer(jobId, {
+        status: "pulling",
+        progress: 50,
+        message: "Đang tạo file tải về trình duyệt...",
+      });
+      renderTransferPatch(jobId);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = safeName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    }
+
+    savedJobs.add(jobId);
+    setJobTransfer(jobId, {
+      status: "saved",
+      progress: 100,
+      message: downloadDirHandle ? `Đã lưu vào ${downloadDirHandle.name}` : "Đã gửi file sang trình duyệt",
+    });
+    renderTransferPatch(jobId);
+    await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}?remove=1`, { method: "DELETE" }).catch(() => {});
+    await loadJobs();
+  } catch (error) {
+    console.error(error);
+    setJobTransfer(jobId, {
+      status: "pull_failed",
+      progress: 0,
+      message: `Lỗi lưu về máy: ${error.message || "không xác định"}`,
+    });
+    renderTransferPatch(jobId);
+    setUrlStatus("Không tải được file về máy. Job vẫn giữ lại để thử lại.", "bad");
   }
-
-  const serverName = contentDispositionFileName(response.headers.get("Content-Disposition")) || fallbackName || `${jobId}.mp4`;
-  const safeName = serverName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
-
-  if (downloadDirHandle) {
-    setUrlStatus(`Đang lưu file về folder ${downloadDirHandle.name}...`, "ok");
-    await writeResponseToFolder(response, safeName);
-    setUrlStatus(`Đã lưu file vào folder ${downloadDirHandle.name}.`, "ok");
-  } else {
-    const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = blobUrl;
-    anchor.download = safeName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-  }
-
-  savedJobs.add(jobId);
-  await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}?remove=1`, { method: "DELETE" }).catch(() => {});
-  await loadJobs();
 }
 
-async function writeResponseToFolder(response, safeName) {
+async function writeResponseToFolder(response, safeName, jobId) {
   const expectedBytes = Number(response.headers.get("Content-Length") || 0);
   const fileHandle = await downloadDirHandle.getFileHandle(safeName, { create: true });
   const writable = await fileHandle.createWritable();
   let writtenBytes = 0;
+  let lastProgressUpdate = 0;
 
   try {
     if (response.body?.getReader) {
@@ -141,6 +191,18 @@ async function writeResponseToFolder(response, safeName) {
         if (done) break;
         writtenBytes += value.byteLength;
         await writable.write(value);
+        if (expectedBytes) {
+          const progress = Math.min(99, Math.round((writtenBytes / expectedBytes) * 100));
+          if (progress !== lastProgressUpdate) {
+            lastProgressUpdate = progress;
+            setJobTransfer(jobId, {
+              status: "pulling",
+              progress,
+              message: `Đang lưu về máy: ${progress}%`,
+            });
+            renderTransferPatch(jobId);
+          }
+        }
       }
     } else {
       const blob = await response.blob();
@@ -157,6 +219,41 @@ async function writeResponseToFolder(response, safeName) {
     throw new Error(`Incomplete file: wrote ${writtenBytes}/${expectedBytes} bytes`);
   }
   return writtenBytes;
+}
+
+function setJobTransfer(jobId, state) {
+  jobTransfers.set(jobId, { ...(jobTransfers.get(jobId) || {}), ...state });
+}
+
+function renderTransferPatch(jobId) {
+  const state = jobTransfers.get(jobId);
+  const article = jobsEl.querySelector(`[data-job-id="${CSS.escape(jobId)}"]`);
+  if (!state || !article) return;
+
+  article.classList.remove("completed", "pulling", "pull_failed");
+  article.classList.add(state.status);
+  const badge = article.querySelector(".status-badge");
+  if (badge) {
+    const badgeTone = state.status === "pull_failed" ? "failed" : state.status === "saved" ? "completed" : state.status;
+    badge.className = `status-badge ${badgeTone}`;
+    badge.textContent = state.status === "pull_failed" ? "Lỗi lưu" : state.status === "saved" ? "Đã lưu" : "Đang lưu";
+  }
+  const strong = article.querySelector(".job-status strong");
+  if (strong) {
+    strong.textContent = state.status === "pull_failed" ? "Lỗi lưu về máy" : state.status === "saved" ? "Đã lưu về máy" : "Đang lưu về máy";
+  }
+  const statusText = article.querySelector(".job-progress-text");
+  if (statusText) {
+    statusText.textContent = `${Math.round(state.progress || 0)}%`;
+  }
+  const meta = article.querySelector(".meta");
+  if (meta && state.message) {
+    meta.textContent = state.message;
+  }
+  const fill = article.querySelector(".fill");
+  if (fill) {
+    fill.style.width = `${Math.max(0, Math.min(100, Number(state.progress || 0)))}%`;
+  }
 }
 
 function pullCompletedJobs(jobs) {
@@ -294,8 +391,11 @@ function statusLabel(status) {
     downloading: "Đang tải",
     converting: "Đang convert",
     optimizing: "Đang tối ưu",
+    pulling: "Đang lưu về máy",
+    saved: "Đã lưu về máy",
     completed: "Hoàn tất",
     failed: "Lỗi",
+    pull_failed: "Lỗi lưu về máy",
     cancelled: "Đã hủy",
   }[status] || status;
 }
@@ -309,8 +409,11 @@ function statusMeta(status, isNext) {
     downloading: { label: "Đang chạy", tone: "running" },
     converting: { label: "Đang convert", tone: "converting" },
     optimizing: { label: "Đang tối ưu", tone: "optimizing" },
+    pulling: { label: "Đang lưu", tone: "pulling" },
+    saved: { label: "Đã lưu", tone: "completed" },
     completed: { label: "Hoàn tất", tone: "completed" },
     failed: { label: "Lỗi", tone: "failed" },
+    pull_failed: { label: "Lỗi lưu", tone: "failed" },
     cancelled: { label: "Đã hủy", tone: "cancelled" },
   }[status] || { label: status, tone: "neutral" };
 }
@@ -354,14 +457,17 @@ function renderJobs(jobs) {
     .map((job, index) => {
       const progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
       const isNext = job.id === nextQueuedId;
-      const displayStatus = effectiveStatus(job);
+      const transfer = jobTransfers.get(job.id);
+      const displayStatus = transfer?.status || effectiveStatus(job);
       const meta = statusMeta(displayStatus, isNext);
       const currentFileName = fileName(job);
-      const fileAction = displayStatus === "completed"
+      const displayProgress = transfer ? Math.max(0, Math.min(100, Number(transfer.progress || 0))) : progress;
+      const displayMessage = transfer?.message || job.size || job.message || "Đang xác định dung lượng";
+      const fileAction = (displayStatus === "completed" || displayStatus === "pull_failed")
         ? `<button class="job-download" type="button" data-download-job="${escapeHtml(job.id)}" data-file-name="${escapeHtml(currentFileName)}">Tai file</button>`
         : "";
       return `
-        <article class="job ${displayStatus} ${isNext ? "next" : ""}">
+        <article class="job ${displayStatus} ${isNext ? "next" : ""}" data-job-id="${escapeHtml(job.id)}">
           <div class="thumb">
             <span>${sourceLabel(job)}</span>
             <small>#${jobs.length - index}</small>
@@ -371,12 +477,12 @@ function renderJobs(jobs) {
               <div class="job-title">${escapeHtml(currentFileName)}</div>
               <span class="status-badge ${meta.tone}">${escapeHtml(meta.label)}</span>
             </div>
-            <div class="meta">Video ${escapeHtml(job.quality)} · ${escapeHtml(job.size || job.message || "Đang xác định dung lượng")}</div>
-            <div class="bar"><div class="fill" style="width:${progress}%"></div></div>
+            <div class="meta">Video ${escapeHtml(job.quality)} · ${escapeHtml(displayMessage)}</div>
+            <div class="bar"><div class="fill" style="width:${displayProgress}%"></div></div>
           </div>
           <div class="job-status">
             <strong>${statusLabel(displayStatus)}</strong>
-            <span>${Math.round(progress)}% ${job.speed ? "· " + escapeHtml(job.speed) : ""}</span>
+            <span class="job-progress-text">${Math.round(displayProgress)}% ${job.speed && !transfer ? "· " + escapeHtml(job.speed) : ""}</span>
             ${fileAction}
           </div>
         </article>

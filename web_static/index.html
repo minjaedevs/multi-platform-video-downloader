@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VideoGet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell client-shell">
+      <header class="app-head">
+        <div class="brand">
+          <div class="brand-mark">↓</div>
+          <div>
+            <strong>VideoGet</strong>
+            <span>Tải video từ nhiều nền tảng</span>
+          </div>
+        </div>
+        <div class="server-pill" id="serverInfo">API</div>
+      </header>
+
+      <section class="client-layout">
+        <form id="downloadForm" class="panel download-panel client-download">
+          <div class="section-head">
+            <div>
+              <h1>Tải video</h1>
+              <p>Dán link, chọn nền tảng và chất lượng. Hệ thống sẽ xử lý tải ở máy chủ local.</p>
+            </div>
+          </div>
+
+          <label>Nguồn</label>
+          <div class="sources" role="group" aria-label="Chọn nguồn tải">
+            <button type="button" class="source active" data-source="youtube">▶ YouTube</button>
+            <button type="button" class="source" data-source="tiktok">♪ TikTok</button>
+            <button type="button" class="source" data-source="facebook">f Facebook</button>
+            <button type="button" class="source" data-source="google_drive">Drive</button>
+            <button type="button" class="source" data-source="direct">Link file</button>
+            <button type="button" class="source" data-source="other">Khác</button>
+          </div>
+
+          <label for="urlInput">Link video</label>
+          <div class="input-line">
+            <span>🔗</span>
+            <input id="urlInput" required placeholder="Dán link YouTube, TikTok, Facebook, Drive, .mp4 hoặc .m3u8..." />
+          </div>
+          <p id="urlStatus" class="url-status">Dán link để kiểm tra hỗ trợ trước khi tải.</p>
+
+          <label for="qualitySelect">Chất lượng</label>
+          <select id="qualitySelect">
+            <option value="best" selected>Tốt nhất có thể</option>
+            <option value="1080">1080p Full HD</option>
+            <option value="720">720p HD</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+
+          <button class="primary" type="submit">↓ Tải ngay</button>
+          <p class="privacy">File được xử lý bởi máy chủ tải video. Bạn chỉ cần gửi link và theo dõi trạng thái.</p>
+        </form>
+
+        <section class="panel queue-panel client-queue">
+          <div class="section-head queue-head">
+            <div>
+              <h2>Trạng thái tải <span id="jobCount">0</span></h2>
+              <p>Danh sách lượt tải đang được xử lý</p>
+            </div>
+            <button id="refreshBtn" class="ghost" type="button">Làm mới</button>
+          </div>
+          <div id="jobs" class="jobs"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="client.js"></script>
+  </body>
+</html>

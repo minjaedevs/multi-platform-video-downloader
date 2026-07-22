@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.log
+chrome_profile/
+_dist/
+.env
+.env.*
+!*env.example
+*cookies*.txt
+ngrok.yml
+ngrok.yaml

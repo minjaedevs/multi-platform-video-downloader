@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VideoGet Admin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="app-head">
+        <div class="brand">
+          <div class="brand-mark">↓</div>
+          <div>
+            <strong>VideoGet Admin</strong>
+            <span>Quản trị API local, Chrome profile và hàng đợi tải</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <a class="header-link" href="/">Client</a>
+          <div class="server-pill" id="serverInfo">Local API</div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <form id="downloadForm" class="panel download-panel">
+          <div class="section-head">
+            <div>
+              <h1>Tải video</h1>
+              <p>YouTube, TikTok, Facebook, Google Drive public, link .mp4/.m3u8/.mpd.</p>
+            </div>
+            <button id="refreshBtn" class="icon-action" type="button" title="Làm mới danh sách">↻</button>
+          </div>
+
+          <section class="setup-card" aria-label="Kiểm tra setup">
+            <div class="setup-head">
+              <div>
+                <strong>Setup & cảnh báo</strong>
+                <span id="setupSummary">Đang kiểm tra Chrome, yt-dlp, ffmpeg...</span>
+              </div>
+              <button id="checkSetupBtn" class="small-action" type="button">Kiểm tra</button>
+            </div>
+            <div id="setupItems" class="setup-items"></div>
+            <div id="platformChecks" class="platform-checks"></div>
+          </section>
+
+          <label>Nguồn</label>
+          <div class="sources" role="group" aria-label="Chọn nguồn tải">
+            <button type="button" class="source active" data-source="youtube">▶ YouTube</button>
+            <button type="button" class="source" data-source="tiktok">♪ TikTok</button>
+            <button type="button" class="source" data-source="facebook">f Facebook</button>
+            <button type="button" class="source" data-source="google_drive">Drive</button>
+            <button type="button" class="source" data-source="direct">Link file</button>
+            <button type="button" class="source" data-source="other">Khác</button>
+          </div>
+
+          <label for="urlInput">Link video</label>
+          <div class="input-line">
+            <span>🔗</span>
+            <input id="urlInput" required placeholder="Dán link YouTube, Drive, .mp4 hoặc .m3u8..." />
+          </div>
+          <p id="urlStatus" class="url-status">Dán link để kiểm tra hỗ trợ trước khi tải.</p>
+
+          <div class="grid-2">
+            <div>
+              <label for="qualitySelect">Chất lượng</label>
+              <select id="qualitySelect">
+                <option value="best" selected>Tốt nhất có thể</option>
+                <option value="1080">1080p Full HD</option>
+                <option value="720">720p HD</option>
+                <option value="480">480p</option>
+                <option value="360">360p</option>
+              </select>
+            </div>
+            <div>
+              <label for="outputDir">Thư mục lưu</label>
+              <input id="outputDir" placeholder="Mặc định: C:/Users/Pc/video-downloader" />
+            </div>
+          </div>
+
+          <details class="advanced" open>
+            <summary>Tùy chọn đăng nhập</summary>
+            <div class="auth-box">
+              <div>
+                <strong>Chrome profile riêng</strong>
+                <span id="authStatus">Dùng khi YouTube/TikTok/Facebook/Drive yêu cầu đăng nhập.</span>
+              </div>
+              <div class="auth-actions">
+                <button id="openLoginBtn" type="button">Mở Chrome</button>
+                <button id="checkLoginBtn" type="button">Kiểm tra link</button>
+              </div>
+            </div>
+            <label class="check">
+              <input id="useAppProfile" type="checkbox" checked />
+              <span>Tự dùng Chrome profile riêng khi tải</span>
+            </label>
+          </details>
+
+          <button class="primary" type="submit">↓ Tải ngay</button>
+          <p class="privacy">File tải trực tiếp về máy đang host. App không lưu video trên server ngoài.</p>
+        </form>
+
+        <section class="panel queue-panel">
+          <div class="section-head queue-head">
+            <div>
+              <h2>Danh sách tải <span id="jobCount">0</span></h2>
+              <p>Lưu tại <strong id="downloadDir">Đang đọc...</strong></p>
+            </div>
+            <button id="clearBtn" class="ghost" type="button">Xóa hoàn tất</button>
+          </div>
+          <div id="jobs" class="jobs"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -13,6 +13,7 @@ import requests
 import re
 import os
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from urllib.parse import urljoin, urlparse
@@ -310,12 +311,17 @@ class VideoInfo:
 
 class YtDlpExtractor:
     """yt-dlp extraction wrapper"""
+
+    @staticmethod
+    def _command() -> List[str]:
+        """Run yt-dlp from the active Python environment."""
+        return [sys.executable, "-m", "yt_dlp"]
     
     @staticmethod
     def check_availability() -> bool:
         """Check if yt-dlp is available"""
         try:
-            subprocess.run(["yt-dlp", "--version"], capture_output=True, check=True)
+            subprocess.run(YtDlpExtractor._command() + ["--version"], capture_output=True, check=True)
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
@@ -324,7 +330,7 @@ class YtDlpExtractor:
     def extract_info(url: str, extract_flat: bool = False) -> Optional[Dict[str, Any]]:
         """Extract video information using yt-dlp"""
         try:
-            cmd = ["yt-dlp", "-J", "--no-warnings"]
+            cmd = YtDlpExtractor._command() + ["-J", "--no-warnings"]
             if extract_flat:
                 cmd.append("--flat-playlist")
             cmd.append(url)
@@ -345,7 +351,7 @@ class YtDlpExtractor:
     @staticmethod
     def download_video(url: str, format_id: Optional[str] = None, output_path: Optional[str] = None) -> Dict[str, Any]:
         """Download video using yt-dlp"""
-        cmd = ["yt-dlp"]
+        cmd = YtDlpExtractor._command()
         
         if format_id:
             cmd.extend(["-f", format_id])

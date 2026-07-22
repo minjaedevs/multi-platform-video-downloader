@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import locale
 import os
 import re
 import shutil
@@ -101,6 +102,29 @@ PROGRESS_RE = re.compile(
     re.IGNORECASE,
 )
 FFMPEG_TIME_RE = re.compile(r"^out_time_ms=(?P<time_ms>\d+)$")
+
+
+def _decode_process_output(data: bytes) -> str:
+    encodings = [
+        "utf-8",
+        locale.getpreferredencoding(False),
+        "cp65001",
+        "cp1258",
+        "cp1252",
+    ]
+    seen: set[str] = set()
+    for encoding in encodings:
+        normalized = (encoding or "").lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        except LookupError:
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 def _yt_dlp_command() -> list[str]:
@@ -469,8 +493,8 @@ async def _run_command(cmd: list[str], timeout: int = 60) -> tuple[int, str]:
     except asyncio.TimeoutError:
         process.kill()
         output, _ = await process.communicate()
-        return 124, output.decode("utf-8", errors="replace")
-    return process.returncode or 0, output.decode("utf-8", errors="replace")
+        return 124, _decode_process_output(output)
+    return process.returncode or 0, _decode_process_output(output)
 
 
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -743,7 +767,7 @@ async def _convert_to_compatible_mp4_legacy(job: dict[str, Any], output_dir: Pat
 
     assert process.stdout is not None
     async for raw_line in process.stdout:
-        clean = raw_line.decode("utf-8", errors="replace").strip()
+        clean = _decode_process_output(raw_line).strip()
         if clean:
             job.setdefault("log_lines", []).append(clean)
 
@@ -828,7 +852,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
             job["process"] = process
             output, _ = await process.communicate()
             if output:
-                job.setdefault("log_lines", []).extend(output.decode("utf-8", errors="replace").splitlines()[-12:])
+                job.setdefault("log_lines", []).extend(_decode_process_output(output).splitlines()[-12:])
             if job.get("status") == "cancelled":
                 temp_path.unlink(missing_ok=True)
                 return False
@@ -882,7 +906,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
 
     assert process.stdout is not None
     async for raw_line in process.stdout:
-        clean = raw_line.decode("utf-8", errors="replace").strip()
+        clean = _decode_process_output(raw_line).strip()
         if clean:
             job.setdefault("log_lines", []).append(clean)
             _update_convert_progress(job, clean, duration)
@@ -939,7 +963,7 @@ async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> Non
             temp_path.unlink(missing_ok=True)
             return
         if output:
-            job.setdefault("log_lines", []).extend(output.decode("utf-8", errors="replace").splitlines()[-8:])
+            job.setdefault("log_lines", []).extend(_decode_process_output(output).splitlines()[-8:])
         if process.returncode == 0 and temp_path.exists() and temp_path.stat().st_size > 0:
             os.replace(temp_path, file_path)
             job["message"] = "Tải hoàn tất - MP4 H.264 đã tối ưu"
@@ -981,7 +1005,7 @@ async def _download_worker(job_id: str) -> None:
 
         assert process.stdout is not None
         async for raw_line in process.stdout:
-            _update_from_line(job, raw_line.decode("utf-8", errors="replace"))
+            _update_from_line(job, _decode_process_output(raw_line))
 
         return_code = await process.wait()
         job["return_code"] = return_code

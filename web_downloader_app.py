@@ -27,6 +27,7 @@ from aiohttp import web
 
 ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "web_static"
+LOG_DIR = ROOT / "logs"
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("VIDEOGET_DOWNLOAD_DIR", ROOT / "processing_storage"))
 PROCESSING_RETENTION_SECONDS = int(os.environ.get("VIDEOGET_PROCESSING_RETENTION_SECONDS", str(24 * 60 * 60)))
 CHROME_EXE = Path(os.environ.get("VIDEOGET_CHROME_EXE", r"C:\Program Files\Google\Chrome\Application\chrome.exe"))
@@ -125,6 +126,31 @@ def _decode_process_output(data: bytes) -> str:
         except LookupError:
             continue
     return data.decode("utf-8", errors="replace")
+
+
+def _job_log(job: dict[str, Any] | None, event: str, message: str, *, level: str = "INFO") -> None:
+    job_id = str((job or {}).get("id") or "system")
+    status = str((job or {}).get("status") or "-")
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[job:{job_id} time:{timestamp} status:{status} level:{level} event:{event}] {message}"
+    print(line, flush=True)
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with (LOG_DIR / "video_jobs.log").open("a", encoding="utf-8") as log_file:
+            log_file.write(line + "\n")
+    except OSError:
+        pass
+    if job is not None:
+        job.setdefault("log_lines", []).append(line)
+
+
+def _job_log_progress(job: dict[str, Any], event: str, message: str, percent: float) -> None:
+    bucket = int(max(0, min(100, percent)) // 10) * 10
+    key = f"_logged_{event}_bucket"
+    if job.get(key) == bucket:
+        return
+    job[key] = bucket
+    _job_log(job, event, message)
 
 
 def _yt_dlp_command() -> list[str]:
@@ -293,6 +319,7 @@ def _update_convert_progress(job: dict[str, Any], line: str, duration: float) ->
     percent = max(0.0, min(99.0, (out_seconds / duration) * 100))
     job["progress"] = round(percent, 1)
     job["message"] = f"Dang convert MP4 H.264 ({job['progress']}%)"
+    _job_log_progress(job, "convert-progress", f"{job['progress']:.1f}% duration={duration:.1f}s", job["progress"])
 
 
 def _find_downloaded_file(job: dict[str, Any], output_dir: Path, started_at: float) -> Path | None:
@@ -501,7 +528,7 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in job.items()
-        if key not in {"process", "task", "log_lines"}
+        if key not in {"process", "task", "log_lines"} and not key.startswith("_")
     } | {"log_tail": job.get("log_lines", [])[-12:]}
 
 
@@ -537,12 +564,13 @@ async def _processing_cleanup_loop(_: web.Application) -> None:
     while True:
         removed = await asyncio.to_thread(_cleanup_processing_files)
         if removed:
-            print(f"[cleanup] removed {removed} processing file(s) older than {PROCESSING_RETENTION_SECONDS}s")
+            _job_log(None, "cleanup", f"removed={removed} retention={PROCESSING_RETENTION_SECONDS}s")
         await asyncio.sleep(60 * 60)
 
 
 async def _start_background_tasks(app: web.Application) -> None:
-    _safe_output_dir()
+    output_dir = _safe_output_dir()
+    _job_log(None, "backend-start", f"host={APP_HOST} port={APP_PORT} processing_dir={output_dir}")
     app["processing_cleanup_task"] = asyncio.create_task(_processing_cleanup_loop(app))
 
 
@@ -690,19 +718,24 @@ def _update_from_line(job: dict[str, Any], line: str) -> None:
 
     if "ERROR:" in clean or clean.lower().startswith("error"):
         job["error_message"] = clean
+        _job_log(job, "tool-error", clean[-600:], level="ERROR")
 
     if "Destination:" in clean:
         job["file_path"] = clean.split("Destination:", 1)[1].strip()
+        _job_log(job, "file-detected", f"destination={job['file_path']}")
     elif "Merging formats into" in clean:
         match = re.search(r'Merging formats into "(.+)"', clean)
         if match:
             job["file_path"] = match.group(1)
+            _job_log(job, "merge-output", f"file={job['file_path']}")
     elif "has already been downloaded" in clean:
         match = re.search(r"\[download\]\s+(.+?)\s+has already been downloaded", clean)
         if match:
             job["file_path"] = match.group(1).strip()
+            _job_log(job, "file-existing", f"file={job['file_path']}")
     elif clean.startswith("[ExtractAudio] Destination:"):
         job["file_path"] = clean.split("Destination:", 1)[1].strip()
+        _job_log(job, "file-detected", f"audio_destination={job['file_path']}")
 
     progress = PROGRESS_RE.search(clean)
     if progress:
@@ -711,6 +744,12 @@ def _update_from_line(job: dict[str, Any], line: str) -> None:
             job["size"] = progress.group("size")
         if progress.group("speed"):
             job["speed"] = progress.group("speed")
+        _job_log_progress(
+            job,
+            "download-progress",
+            f"{job['progress']:.1f}% size={job.get('size') or '-'} speed={job.get('speed') or '-'}",
+            job["progress"],
+        )
 
 
 async def _convert_to_compatible_mp4_legacy(job: dict[str, Any], output_dir: Path, started_at: float) -> bool:
@@ -807,12 +846,14 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
     source_path = _find_downloaded_file(job, output_dir, started_at)
     if not source_path:
         job["message"] = "Tai xong nhung chua xac dinh duoc file de convert MP4."
+        _job_log(job, "convert-missing-file", job["message"], level="ERROR")
         return False
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
         job["file_path"] = str(source_path)
         job["message"] = "Tai xong nhung thieu ffmpeg de convert MP4 H.264."
+        _job_log(job, "convert-missing-ffmpeg", job["message"], level="ERROR")
         return False
 
     final_path = source_path if source_path.suffix.lower() == ".mp4" else source_path.with_suffix(".mp4")
@@ -823,6 +864,17 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
     quality = str(job.get("quality") or "best")
     probe = await _probe_media(source_path)
     duration = _media_duration(probe)
+    video_stream = _stream_for(probe, "video") or {}
+    audio_stream = _stream_for(probe, "audio") or {}
+    _job_log(
+        job,
+        "probe",
+        (
+            f"file={source_path.name} vcodec={video_stream.get('codec_name') or '-'} "
+            f"height={video_stream.get('height') or '-'} acodec={audio_stream.get('codec_name') or '-'} "
+            f"duration={duration:.1f}s"
+        ),
+    )
 
     if not _needs_h264_transcode(probe, quality):
         job["file_path"] = str(final_path)
@@ -830,7 +882,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
             job["status"] = "optimizing"
             job["message"] = "Dang dong goi lai MP4 tuong thich"
             job["progress"] = 99
-            job.setdefault("log_lines", []).append(f"[tool] Remuxing compatible MP4: {final_path.name}")
+            _job_log(job, "remux-start", f"file={final_path.name}")
             process = await asyncio.create_subprocess_exec(
                 ffmpeg_path,
                 "-y",
@@ -855,12 +907,14 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
                 job.setdefault("log_lines", []).extend(_decode_process_output(output).splitlines()[-12:])
             if job.get("status") == "cancelled":
                 temp_path.unlink(missing_ok=True)
+                _job_log(job, "remux-cancelled", f"file={final_path.name}", level="WARN")
                 return False
             if process.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size == 0:
                 temp_path.unlink(missing_ok=True)
                 job["message"] = f"Tai xong nhung remux MP4 that bai (ffmpeg exit {process.returncode})."
                 job["return_code"] = process.returncode
                 job["file_path"] = str(source_path)
+                _job_log(job, "remux-failed", job["message"], level="ERROR")
                 return False
             if source_path.resolve() != final_path.resolve() and source_path.exists():
                 source_path.unlink()
@@ -868,6 +922,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
 
         job["file_path"] = str(final_path)
         job["message"] = "Tai hoan tat - MP4 H.264/AAC tuong thich Windows"
+        _job_log(job, "remux-completed", f"file={final_path.name}")
         await _optimize_mp4_with_bento4(job, final_path)
         return True
 
@@ -876,7 +931,7 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
     job["message"] = f"Dang convert MP4 H.264 {quality_label} de Windows mo duoc"
     job["progress"] = 0
     job["file_path"] = str(final_path)
-    job.setdefault("log_lines", []).append(f"[tool] Converting to compatible MP4: {final_path.name}")
+    _job_log(job, "convert-start", f"quality={quality_label} input={source_path.name} output={final_path.name}")
 
     process = await asyncio.create_subprocess_exec(
         ffmpeg_path,
@@ -914,12 +969,14 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
     return_code = await process.wait()
     if job.get("status") == "cancelled":
         temp_path.unlink(missing_ok=True)
+        _job_log(job, "convert-cancelled", f"file={final_path.name}", level="WARN")
         return False
     if return_code != 0 or not temp_path.exists() or temp_path.stat().st_size == 0:
         temp_path.unlink(missing_ok=True)
         job["message"] = f"Tai xong nhung convert MP4 that bai (ffmpeg exit {return_code})."
         job["return_code"] = return_code
         job["file_path"] = str(source_path)
+        _job_log(job, "convert-failed", job["message"], level="ERROR")
         return False
 
     try:
@@ -929,10 +986,12 @@ async def _convert_to_compatible_mp4_v2(job: dict[str, Any], output_dir: Path, s
     except OSError as exc:
         job["message"] = f"Convert xong nhung khong thay duoc file MP4: {exc}"
         job["file_path"] = str(temp_path)
+        _job_log(job, "convert-replace-failed", job["message"], level="ERROR")
         return False
 
     job["file_path"] = str(final_path)
     job["message"] = "Tai hoan tat - MP4 H.264 tuong thich Windows"
+    _job_log(job, "convert-completed", f"file={final_path.name}")
     await _optimize_mp4_with_bento4(job, final_path)
     return True
 
@@ -949,7 +1008,7 @@ async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> Non
 
         job["status"] = "optimizing"
         job["message"] = "Đang tối ưu MP4 bằng Bento4"
-        job.setdefault("log_lines", []).append(f"[tool] Optimizing MP4 with Bento4 mp4compact: {file_path.name}")
+        _job_log(job, "optimize-start", f"tool=mp4compact file={file_path.name}")
         process = await asyncio.create_subprocess_exec(
             mp4compact,
             str(file_path),
@@ -961,17 +1020,20 @@ async def _optimize_mp4_with_bento4(job: dict[str, Any], file_path: Path) -> Non
         output, _ = await process.communicate()
         if job.get("status") == "cancelled":
             temp_path.unlink(missing_ok=True)
+            _job_log(job, "optimize-cancelled", f"file={file_path.name}", level="WARN")
             return
         if output:
             job.setdefault("log_lines", []).extend(_decode_process_output(output).splitlines()[-8:])
         if process.returncode == 0 and temp_path.exists() and temp_path.stat().st_size > 0:
             os.replace(temp_path, file_path)
             job["message"] = "Tải hoàn tất - MP4 H.264 đã tối ưu"
+            _job_log(job, "optimize-completed", f"file={file_path.name}")
         else:
             temp_path.unlink(missing_ok=True)
             job["message"] = "Tải hoàn tất - MP4 H.264 tương thích Windows"
+            _job_log(job, "optimize-skipped", f"mp4compact_exit={process.returncode} file={file_path.name}", level="WARN")
     except OSError as exc:
-        job.setdefault("log_lines", []).append(f"[tool] Bento4 skipped: {exc}")
+        _job_log(job, "optimize-error", f"Bento4 skipped: {exc}", level="WARN")
         try:
             temp_path.unlink(missing_ok=True)
         except OSError:
@@ -984,16 +1046,18 @@ async def _download_worker(job_id: str) -> None:
     output_dir = Path(job["output_dir"])
     started_at = time.time()
     job["status"] = "downloading"
+    _job_log(job, "worker-start", f"source={job.get('source')} quality={job.get('quality')} output_dir={output_dir}")
 
     return_code = 1
     for strategy_name, strategy_args in _download_strategies(job, output_dir):
         if job.get("status") == "cancelled":
+            _job_log(job, "worker-cancelled-before-strategy", f"strategy={strategy_name}", level="WARN")
             break
 
         cmd = _yt_dlp_command() + strategy_args
         job["strategy"] = strategy_name
         job["command"] = " ".join(cmd)
-        _update_from_line(job, f"[tool] Trying strategy: {strategy_name}")
+        _job_log(job, "strategy-start", f"strategy={strategy_name}")
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -1010,23 +1074,29 @@ async def _download_worker(job_id: str) -> None:
         return_code = await process.wait()
         job["return_code"] = return_code
         if return_code == 0:
+            _job_log(job, "strategy-success", f"strategy={strategy_name} exit=0")
             break
 
+        _job_log(job, "strategy-failed", f"strategy={strategy_name} exit={return_code}", level="WARN")
         _update_from_line(job, f"[tool] Strategy failed: {strategy_name} (exit {return_code})")
 
     if job.get("status") == "cancelled":
         job["progress"] = job.get("progress", 0)
+        _job_log(job, "job-cancelled", f"progress={job.get('progress', 0)}", level="WARN")
     elif return_code == 0:
         converted = await _convert_to_compatible_mp4_v2(job, output_dir, started_at)
         if job.get("status") == "cancelled":
             job["progress"] = job.get("progress", 0)
+            _job_log(job, "job-cancelled", f"progress={job.get('progress', 0)}", level="WARN")
         elif converted:
             job["status"] = "completed"
             job["progress"] = 100
             job["return_code"] = 0
+            _job_log(job, "job-completed", f"file={job.get('file_path')}")
         else:
             job["status"] = "failed"
             job["progress"] = 100
+            _job_log(job, "job-failed", job.get("message") or "convert failed", level="ERROR")
     else:
         job["status"] = "failed"
         if job.get("error_message"):
@@ -1043,9 +1113,12 @@ async def _download_worker(job_id: str) -> None:
             )
         else:
             job["message"] = job.get("message") or "yt-dlp failed"
+        _job_log(job, "job-failed", job.get("message") or f"yt-dlp exit={return_code}", level="ERROR")
 
     if job.get("status") in {"completed", "failed", "cancelled"}:
         job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        elapsed = time.time() - started_at
+        _job_log(job, "worker-finished", f"final_status={job.get('status')} elapsed={elapsed:.1f}s")
 
 
 async def index(_: web.Request) -> web.FileResponse:
@@ -1133,6 +1206,11 @@ async def create_job(request: web.Request) -> web.Response:
         "log_lines": [],
     }
     jobs[job_id] = job
+    _job_log(
+        job,
+        "job-created",
+        f"client={job.get('client_id') or '-'} source={job['source']} quality={job['quality']} url={url}",
+    )
     job["task"] = asyncio.create_task(_download_worker(job_id))
     return web.json_response({"success": True, "job": _public_job(job)})
 
@@ -1219,6 +1297,7 @@ async def cancel_job(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": "Không tìm thấy job"}, status=404)
 
     if request.query.get("remove") == "1" and job.get("status") in {"completed", "failed", "cancelled"}:
+        _job_log(job, "job-removed-from-list", f"client={client_id or '-'} status={job.get('status')}")
         jobs.pop(job_id, None)
         return web.json_response({"success": True, "removed": 1})
 
@@ -1226,6 +1305,7 @@ async def cancel_job(request: web.Request) -> web.Response:
     if process and process.returncode is None:
         job["status"] = "cancelled"
         job["message"] = "Đã hủy"
+        _job_log(job, "job-cancel-requested", f"client={client_id or '-'}", level="WARN")
         if os.name == "nt":
             process.terminate()
         else:
@@ -1259,8 +1339,10 @@ async def download_job_file(request: web.Request) -> web.StreamResponse:
 
     file_path = _job_file_path(job)
     if not file_path:
+        _job_log(job, "client-pull-missing-file", f"client={client_id or '-'}", level="ERROR")
         return web.json_response({"success": False, "error": "Khong tim thay file tren server"}, status=404)
 
+    _job_log(job, "client-pull-start", f"client={client_id or '-'} file={file_path.name} bytes={file_path.stat().st_size}")
     response = web.FileResponse(
         file_path,
         headers={

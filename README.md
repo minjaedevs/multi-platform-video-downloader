@@ -73,6 +73,28 @@ Mo client local:
 http://127.0.0.1:8787/
 ```
 
+## Log BE
+
+BE ghi log ra console va file:
+
+```text
+D:\be_video_downloader_mcp\logs\video_jobs.log
+```
+
+Format moi:
+
+```text
+[job:<job_id> time:<YYYY-MM-DD HH:mm:ss> status:<status> level:<INFO|WARN|ERROR> event:<event>] <message>
+```
+
+Vi du:
+
+```text
+[job:a1b2c3d4e5 time:2026-07-22 14:30:05 status:downloading level:INFO event:download-progress] 50.1% size=120MiB speed=8.2MiB/s
+[job:a1b2c3d4e5 time:2026-07-22 14:31:20 status:converting level:INFO event:convert-progress] 40.0% duration=320.0s
+[job:a1b2c3d4e5 time:2026-07-22 14:33:02 status:completed level:INFO event:client-pull-start] client=abc file=video.mp4 bytes=123456789
+```
+
 Thu muc BE xu ly tam:
 
 ```text

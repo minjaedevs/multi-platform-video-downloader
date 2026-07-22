@@ -6,6 +6,7 @@ const qualitySelect = document.querySelector("#qualitySelect");
 const urlStatus = document.querySelector("#urlStatus");
 const serverInfo = document.querySelector("#serverInfo");
 const downloadPath = document.querySelector("#downloadPath");
+const copyPathBtn = document.querySelector("#copyPathBtn");
 
 const params = new URLSearchParams(window.location.search);
 const queryApiBase = params.get("api");
@@ -17,6 +18,7 @@ const API_TOKEN = queryApiToken || localStorage.getItem("VIDEOGET_API_TOKEN") ||
 
 let activeSource = "youtube";
 let urlCheckTimer = null;
+let downloadDirValue = "";
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -43,6 +45,7 @@ urlInput.addEventListener("input", () => {
 });
 
 document.querySelector("#refreshBtn").addEventListener("click", loadJobs);
+copyPathBtn?.addEventListener("click", copyDownloadPath);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -229,16 +232,39 @@ async function loadConfig() {
     const config = await response.json();
     serverInfo.textContent = API_BASE || config.public_url;
     serverInfo.title = API_BASE || config.public_url;
+    downloadDirValue = config.download_dir || "";
     if (downloadPath) {
-      downloadPath.textContent = `Lưu tại: ${config.download_dir || "chưa xác định"}`;
-      downloadPath.title = config.download_dir || "Thư mục lưu video";
+      downloadPath.textContent = `Video lưu tại: ${downloadDirValue || "chưa xác định"}`;
+      downloadPath.title = downloadDirValue || "Đường dẫn thư mục chứa video tải về";
+    }
+    if (copyPathBtn) {
+      copyPathBtn.disabled = !downloadDirValue;
+      copyPathBtn.textContent = "Copy";
     }
   } catch {
     serverInfo.textContent = "API chưa kết nối";
+    downloadDirValue = "";
     if (downloadPath) {
-      downloadPath.textContent = "Chưa lấy được thư mục lưu";
+      downloadPath.textContent = "Video lưu tại: chưa kết nối API";
       downloadPath.title = "Kiểm tra kết nối API";
     }
+    if (copyPathBtn) {
+      copyPathBtn.disabled = true;
+      copyPathBtn.textContent = "Copy";
+    }
+  }
+}
+
+async function copyDownloadPath() {
+  if (!downloadDirValue) return;
+  try {
+    await navigator.clipboard.writeText(downloadDirValue);
+    copyPathBtn.textContent = "Đã copy";
+    setTimeout(() => {
+      copyPathBtn.textContent = "Copy";
+    }, 1400);
+  } catch {
+    window.prompt("Copy đường dẫn thư mục video:", downloadDirValue);
   }
 }
 

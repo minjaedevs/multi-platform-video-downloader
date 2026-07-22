@@ -532,6 +532,17 @@ select option {
   padding: 0 14px;
 }
 
+.ghost.compact {
+  padding: 0 11px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .jobs {
   min-height: 470px;
   max-height: calc(100vh - 210px);

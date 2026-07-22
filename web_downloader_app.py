@@ -79,11 +79,18 @@ VIDEO_FILE_EXTENSIONS = {
 jobs: dict[str, dict[str, Any]] = {}
 
 QUALITY_FORMATS = {
-    "best": "bestvideo+bestaudio/best",
-    "1080": "bestvideo*[height<=1080]+bestaudio/best[height<=1080]",
-    "720": "bestvideo*[height<=720]+bestaudio/best[height<=720]",
-    "480": "bestvideo*[height<=480]+bestaudio/best[height<=480]",
-    "360": "bestvideo*[height<=360]+bestaudio/best[height<=360]",
+    "best": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+    "1080": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo*[height<=1080]+bestaudio/best[height<=1080]",
+    "720": "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/bestvideo*[height<=720]+bestaudio/best[height<=720]",
+    "480": "bestvideo[ext=mp4][height<=480]+bestaudio[ext=m4a]/bestvideo*[height<=480]+bestaudio/best[height<=480]",
+    "360": "bestvideo[ext=mp4][height<=360]+bestaudio[ext=m4a]/bestvideo*[height<=360]+bestaudio/best[height<=360]",
+}
+
+QUALITY_MAX_HEIGHTS = {
+    "1080": 1080,
+    "720": 720,
+    "480": 480,
+    "360": 360,
 }
 
 PROGRESS_RE = re.compile(
@@ -152,6 +159,14 @@ def _safe_output_dir(path: str | None = None) -> Path:
 
 def _format_for_quality(quality: str) -> list[str]:
     return ["-f", QUALITY_FORMATS.get(quality, QUALITY_FORMATS["best"])]
+
+
+def _ffmpeg_video_args_for_quality(quality: str) -> list[str]:
+    args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
+    max_height = QUALITY_MAX_HEIGHTS.get(str(quality))
+    if max_height:
+        args.extend(["-vf", f"scale=-2:min(ih\\,{max_height}),setsar=1"])
+    return args
 
 
 def _find_downloaded_file(job: dict[str, Any], output_dir: Path, started_at: float) -> Path | None:
@@ -497,7 +512,9 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
     if temp_path.exists():
         temp_path.unlink()
 
-    job["message"] = "Đang convert MP4 H.264 để Windows mở được"
+    quality = str(job.get("quality") or "best")
+    quality_label = "best" if quality == "best" else f"{quality}p"
+    job["message"] = f"Đang convert MP4 H.264 {quality_label} để Windows mở được"
     job["progress"] = max(float(job.get("progress") or 0), 99)
     job["file_path"] = str(final_path)
     _update_from_line(job, f"[tool] Converting to compatible MP4: {final_path.name}")
@@ -511,14 +528,7 @@ async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, star
         "0:v:0",
         "-map",
         "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-pix_fmt",
-        "yuv420p",
+        *_ffmpeg_video_args_for_quality(quality),
         "-c:a",
         "aac",
         "-b:a",

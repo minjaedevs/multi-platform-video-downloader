@@ -764,7 +764,9 @@ def _apply_cors(request: web.Request, response: web.StreamResponse) -> web.Strea
     if origin and _is_allowed_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = "*" if "*" in ALLOWED_ORIGINS else origin
         response.headers["Vary"] = "Origin"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-VideoGet-Token, Authorization"
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, X-VideoGet-Token, Authorization, ngrok-skip-browser-warning"
+        )
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     return response
 

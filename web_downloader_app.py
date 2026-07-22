@@ -66,6 +66,16 @@ DIRECT_MEDIA_EXTENSIONS = {
     ".ts",
 }
 
+VIDEO_FILE_EXTENSIONS = {
+    ".mp4",
+    ".m4v",
+    ".mov",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".ts",
+}
+
 jobs: dict[str, dict[str, Any]] = {}
 
 QUALITY_FORMATS = {
@@ -142,6 +152,29 @@ def _safe_output_dir(path: str | None = None) -> Path:
 
 def _format_for_quality(quality: str) -> list[str]:
     return ["-f", QUALITY_FORMATS.get(quality, QUALITY_FORMATS["best"])]
+
+
+def _find_downloaded_file(job: dict[str, Any], output_dir: Path, started_at: float) -> Path | None:
+    file_path = str(job.get("file_path") or "").strip().strip('"')
+    if file_path:
+        candidate = Path(file_path)
+        if not candidate.is_absolute():
+            candidate = output_dir / candidate
+        if candidate.exists() and candidate.suffix.lower() in VIDEO_FILE_EXTENSIONS:
+            return candidate
+
+    candidates = [
+        item
+        for item in output_dir.glob("*")
+        if item.is_file()
+        and item.suffix.lower() in VIDEO_FILE_EXTENSIONS
+        and item.stat().st_mtime >= started_at - 5
+        and not item.name.endswith(".part")
+        and ".compatible.tmp" not in item.name
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item.stat().st_mtime)
 
 
 def _app_profile_cookie_arg() -> str:
@@ -447,9 +480,97 @@ def _update_from_line(job: dict[str, Any], line: str) -> None:
             job["speed"] = progress.group("speed")
 
 
+async def _convert_to_compatible_mp4(job: dict[str, Any], output_dir: Path, started_at: float) -> bool:
+    source_path = _find_downloaded_file(job, output_dir, started_at)
+    if not source_path:
+        job["message"] = "Tải xong nhưng chưa xác định được file để convert MP4."
+        return False
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        job["file_path"] = str(source_path)
+        job["message"] = "Tải xong nhưng thiếu ffmpeg để convert MP4 H.264."
+        return False
+
+    final_path = source_path if source_path.suffix.lower() == ".mp4" else source_path.with_suffix(".mp4")
+    temp_path = final_path.with_name(f"{final_path.stem}.compatible.tmp.mp4")
+    if temp_path.exists():
+        temp_path.unlink()
+
+    job["message"] = "Đang convert MP4 H.264 để Windows mở được"
+    job["progress"] = max(float(job.get("progress") or 0), 99)
+    job["file_path"] = str(final_path)
+    _update_from_line(job, f"[tool] Converting to compatible MP4: {final_path.name}")
+
+    cmd = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        str(source_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-movflags",
+        "+faststart",
+        str(temp_path),
+    ]
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=str(ROOT),
+    )
+    job["process"] = process
+
+    assert process.stdout is not None
+    async for raw_line in process.stdout:
+        clean = raw_line.decode("utf-8", errors="replace").strip()
+        if clean:
+            job.setdefault("log_lines", []).append(clean)
+
+    return_code = await process.wait()
+    if return_code != 0 or not temp_path.exists():
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        job["message"] = f"Tải xong nhưng convert MP4 thất bại (ffmpeg exit {return_code})."
+        job["return_code"] = return_code
+        job["file_path"] = str(source_path)
+        return False
+
+    try:
+        if source_path.resolve() != final_path.resolve() and source_path.exists():
+            source_path.unlink()
+        os.replace(temp_path, final_path)
+    except OSError as exc:
+        job["message"] = f"Convert xong nhưng không thay được file MP4: {exc}"
+        job["file_path"] = str(temp_path)
+        return False
+
+    job["file_path"] = str(final_path)
+    job["message"] = "Tải hoàn tất - MP4 H.264 tương thích Windows"
+    return True
+
+
 async def _download_worker(job_id: str) -> None:
     job = jobs[job_id]
     output_dir = Path(job["output_dir"])
+    started_at = time.time()
     job["status"] = "downloading"
 
     return_code = 1
@@ -486,9 +607,13 @@ async def _download_worker(job_id: str) -> None:
     if job.get("status") == "cancelled":
         job["progress"] = job.get("progress", 0)
     elif return_code == 0:
-        job["status"] = "completed"
-        job["progress"] = 100
-        job["message"] = "Tải hoàn tất"
+        if await _convert_to_compatible_mp4(job, output_dir, started_at):
+            job["status"] = "completed"
+            job["progress"] = 100
+            job["return_code"] = 0
+        else:
+            job["status"] = "failed"
+            job["progress"] = 100
     else:
         job["status"] = "failed"
         if job.get("error_message"):

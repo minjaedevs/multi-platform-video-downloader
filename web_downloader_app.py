@@ -279,6 +279,18 @@ def _find_downloaded_file(job: dict[str, Any], output_dir: Path, started_at: flo
         if candidate.exists() and candidate.suffix.lower() in VIDEO_FILE_EXTENSIONS:
             return candidate
 
+    for media_id in _media_id_candidates(job):
+        marker = f"[{media_id}]"
+        for candidate in output_dir.glob("*"):
+            if (
+                candidate.is_file()
+                and marker in candidate.name
+                and candidate.suffix.lower() in VIDEO_FILE_EXTENSIONS
+                and not candidate.name.endswith(".part")
+                and ".compatible.tmp" not in candidate.name
+            ):
+                return candidate
+
     candidates = [
         item
         for item in output_dir.glob("*")
@@ -291,6 +303,31 @@ def _find_downloaded_file(job: dict[str, Any], output_dir: Path, started_at: flo
     if not candidates:
         return None
     return max(candidates, key=lambda item: item.stat().st_mtime)
+
+
+def _media_id_candidates(job: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    for raw_url in (job.get("url"), job.get("original_url")):
+        url = str(raw_url or "")
+        if not url:
+            continue
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        youtube_id = (query.get("v") or [""])[0]
+        if youtube_id:
+            ids.append(youtube_id)
+
+        host = parsed.netloc.lower()
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if "youtu.be" in host and path_parts:
+            ids.append(path_parts[0])
+        for part in reversed(path_parts):
+            if re.fullmatch(r"\d{8,}", part) or re.fullmatch(r"[a-zA-Z0-9_-]{8,}", part):
+                ids.append(part)
+                break
+
+    seen: set[str] = set()
+    return [item for item in ids if item and not (item in seen or seen.add(item))]
 
 
 def _app_profile_cookie_arg() -> str:
@@ -584,6 +621,10 @@ def _update_from_line(job: dict[str, Any], line: str) -> None:
         match = re.search(r'Merging formats into "(.+)"', clean)
         if match:
             job["file_path"] = match.group(1)
+    elif "has already been downloaded" in clean:
+        match = re.search(r"\[download\]\s+(.+?)\s+has already been downloaded", clean)
+        if match:
+            job["file_path"] = match.group(1).strip()
     elif clean.startswith("[ExtractAudio] Destination:"):
         job["file_path"] = clean.split("Destination:", 1)[1].strip()
 
